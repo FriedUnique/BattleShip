@@ -1,6 +1,12 @@
 from typing import List
-import pygame, sys
+import pygame
 from utils import Vector2
+from sys import exit
+from time import sleep
+
+import socket
+from threading import Thread
+import pickle
 
 pygame.init()
 width, height = (600, 600)
@@ -12,12 +18,22 @@ EMPTY = (160, 193, 217) # 0
 BOAT = (79, 78, 77) # 1
 HIT = (217, 84, 54) # 2
 
+# networking
+FORMAT = 'utf-8'
+HOST = '127.0.0.1'
+PORT = 5050
+ADDR = (HOST, PORT)
+DISCONNECT = "dDd!"
+
+# map stuff
 GRIDSIZE = 75 # 8x8
 mapSize = 8 #int(width/GRIDSIZE) # always a square grid!
 grid = []
 
 isRunning = True
 canEdit = True # will change if game starts
+isStarted = False
+isTurn = False
 
 def blancMap():
     global grid
@@ -103,6 +119,7 @@ while canEdit:
                 for i, boat in enumerate(boats):
                     boat.addToGrid()
                 canEdit = False
+                break
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
@@ -145,8 +162,32 @@ while canEdit:
     pygame.display.update()
 
 
-# actual attacking
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(ADDR)
 
+x = [str(int) for int in grid]
+msg = ",".join(x)
+msg = msg[:-2]
+print(msg)
+client.send(msg.encode(FORMAT))
+
+received = ""
+
+def recv():
+    global received, isTurn, isStarted
+    startMsg = client.recv(2).decode(FORMAT)
+    isStarted, isTurn = bool(int(startMsg[0])), bool(int(startMsg[1]))
+    print(f"start message recved! my turn: {isTurn}!")
+
+    while isRunning:
+        received = client.recv(3).decode(FORMAT)
+        isTurn = bool(int(received[0]))
+        print("Other: ", received[1:])
+
+recvThread = Thread(target=recv)
+recvThread.start()
+
+# actual attacking
 while isRunning:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -155,8 +196,13 @@ while isRunning:
             pygame.quit()
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            square = Vector2(int(event.pos[0]/GRIDSIZE), int(event.pos[1]/GRIDSIZE))
-            print(square)
+            square = int(event.pos[1]/GRIDSIZE) * mapSize + int(event.pos[0]/GRIDSIZE)
+            msg = "%02d" % (square,)
+            #print("Square: ", msg)
+
+            if isTurn:
+                client.send(msg.encode(FORMAT))
+                isTurn = False
 
     screen.fill((0, 0, 0)) #(160, 193, 217)
     draw()
@@ -164,4 +210,4 @@ while isRunning:
     pygame.display.update()
 
 
-sys.exit()
+exit()

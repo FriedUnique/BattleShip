@@ -7,6 +7,7 @@ PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
 FORMAT = 'utf-8'
 ADDR = (HOST, PORT)
 DISCONNECT = "dDd!"
+mapSize = 8
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
@@ -17,7 +18,9 @@ def handle_player(conn, addr, start: bool):
     connected = True
     isTurn = start
     other = None
-    grid = None
+    grid: str = conn.recv(2048).decode(FORMAT)
+    grid = grid.split(",")
+    print(grid)
 
     #! upload the grid, so server can check
 
@@ -36,8 +39,8 @@ def handle_player(conn, addr, start: bool):
 
     while connected:
         # position of mouse point in grid space
-        recvMessage = conn.recv(4).decode(FORMAT)
-        x, y = int(recvMessage[:2]), int(recvMessage[2:4])
+        recvMessage = conn.recv(2).decode(FORMAT)
+        square = int(recvMessage[:2])
 
         if(recvMessage == DISCONNECT):
             connections.pop(conn)
@@ -49,7 +52,7 @@ def handle_player(conn, addr, start: bool):
         if other == None:
             other = list(connections.keys())[1]
         
-        other.send(f"1{x}{y}".encode(FORMAT))
+        other.send(f"1{square}".encode(FORMAT))
         # recv confirmation
         
 
