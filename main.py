@@ -97,6 +97,7 @@ while canEdit:
             pygame.quit()
 
         elif event.type == pygame.KEYDOWN:
+            # confirm you loadout
             if event.key == pygame.K_SPACE:
                 blancMap()
                 for i, boat in enumerate(boats):
