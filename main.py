@@ -1,15 +1,12 @@
-from typing import List
 import pygame
 from utils import Vector2
 from sys import exit
-from time import sleep
 
 import socket
 from threading import Thread
-import pickle
 
 pygame.init()
-width, height = (600, 600)
+width, height = (1210, 600)
 screen = pygame.display.set_mode((width, height))
 clock = pygame.time.Clock()
 
@@ -17,31 +14,37 @@ clock = pygame.time.Clock()
 EMPTY = (160, 193, 217) # 0
 BOAT = (79, 78, 77) # 1
 HIT = (217, 84, 54) # 2
+MISS = (114, 129, 140) # 3
 
 # networking
 FORMAT = 'utf-8'
 HOST = '127.0.0.1'
 PORT = 5050
 ADDR = (HOST, PORT)
-DISCONNECT = "dDd!"
+DISCONNECT = "!dDd"
 
 # map stuff
 GRIDSIZE = 75 # 8x8
 mapSize = 8 #int(width/GRIDSIZE) # always a square grid!
+screenOffset = mapSize * GRIDSIZE + 10
 grid = []
+otherGrid = []
 
 isRunning = True
 canEdit = True # will change if game starts
-isStarted = False
 isTurn = False
+isFinished = None
+
+selectedIndex: int = None # index can be 0, has to do with the boat-dragging mechanic
 
 def blancMap():
-    global grid
-    grid = []
+    _g = []
     for y in range(mapSize):
         for x in range(mapSize):
-            grid.append(0)
-blancMap()
+            _g.append(0)
+    return _g
+grid = blancMap()
+otherGrid = blancMap()
 
 class Boat():
     def __init__(self, position: Vector2, dimensions: Vector2):
@@ -82,9 +85,10 @@ class Boat():
                 print(square)
                 grid[square] = 1
 
-boats: List[Boat] = []
-Boat(Vector2(75, 75), Vector2(2, 1))
-Boat(Vector2(75, 75), Vector2(3, 1))
+# instantiation of the boats
+boats = []
+Boat(Vector2(75, 75), Vector2(1, 1))
+#Boat(Vector2(75, 75), Vector2(3, 1))
 #Boat(Vector2(75, 75), Vector2(1, 2))
 
 
@@ -100,26 +104,42 @@ def draw():
                 pygame.draw.rect(screen, BOAT, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE, GRIDSIZE))
             elif(grid[square] == 2):
                 pygame.draw.rect(screen, HIT, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+            elif(grid[square] == 3):
+                pygame.draw.rect(screen, MISS, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
 
-    for boat in boats:
-        boat.draw()
+    for y in range(mapSize):
+        for x in range(mapSize):
+            square = y * mapSize + x
 
-selectedIndex: int = None # index can be 0
+            # empty slot
+            if(otherGrid[square] == 0):
+                pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+            elif(otherGrid[square] == 1):
+                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE, GRIDSIZE))
+            elif(otherGrid[square] == 2):
+                pygame.draw.rect(screen, HIT, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+            elif(otherGrid[square] == 3):
+                pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+
+
+    if canEdit:
+        for boat in boats:
+            boat.draw()
+
+
 while canEdit:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             isRunning = False
             canEdit = False
-            pygame.quit()
 
         elif event.type == pygame.KEYDOWN:
             # confirm you loadout
             if event.key == pygame.K_SPACE:
-                blancMap()
+                grid = blancMap()
                 for i, boat in enumerate(boats):
                     boat.addToGrid()
                 canEdit = False
-                break
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
@@ -162,43 +182,79 @@ while canEdit:
     pygame.display.update()
 
 
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(ADDR)
+if isRunning:
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
 
-x = [str(int) for int in grid]
-msg = ",".join(x)
-msg = msg[:-2]
-print(msg)
-client.send(msg.encode(FORMAT))
+    x = [str(int) for int in grid]
+    msg = ",".join(x)
+    msg = msg[:-2]
+    print(msg)
+    client.send(msg.encode(FORMAT))
 
 received = ""
 
 def recv():
-    global received, isTurn, isStarted
+    global received, isTurn, isFinished, isRunning
     startMsg = client.recv(2).decode(FORMAT)
-    isStarted, isTurn = bool(int(startMsg[0])), bool(int(startMsg[1]))
+    isTurn = bool(int(startMsg[1]))
     print(f"start message recved! my turn: {isTurn}!")
 
     while isRunning:
-        received = client.recv(3).decode(FORMAT)
+        received = client.recv(4).decode(FORMAT)
+        if len(received) < 3:
+            continue
+
+        if received.startswith("!"):
+            if received == DISCONNECT:
+                isRunning = False
+                isTurn = False
+                isFinished = False
+                print("Force close!")
+                break
+        
+        # end of game, win/loose
+        # 2{playerIndex}{bool: didWin}
+        if int(received[0]) > 1:
+            isTurn = False
+            isFinished = True
+            t = int(received[2])
+            print(f"Game finished! You {'won' if t==1 else 'lost'}!")
+            break
+
         isTurn = bool(int(received[0]))
-        print("Other: ", received[1:])
+        square = int(received[1:3])
+        isHit = bool(int(received[3]))
 
-recvThread = Thread(target=recv)
-recvThread.start()
+        # if hit a boat (handled on the server) grid slot is a 2
+        if isTurn == 0:
+            #? check around the hit point and mark the other spots, like in the browser game
+            grid[square] = 2 if isHit == True else 3
 
+if isRunning:
+    # init the receive thread
+    recvThread = Thread(target=recv)
+    recvThread.start()
+    #grid = blancMap()
+
+# draw your attacks
 # actual attacking
 while isRunning:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
+            client.send(msg.encode(FORMAT))
+            isTurn = False
             isRunning = False
             canEdit = False
-            pygame.quit()
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            square = int(event.pos[1]/GRIDSIZE) * mapSize + int(event.pos[0]/GRIDSIZE)
+            if(event.pos[0] < 610): continue
+
+            # on the right side
+            square = int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE)
+            if grid[square] == 2 or grid[square] == 3: continue # not click on hit positions
+
             msg = "%02d" % (square,)
-            #print("Square: ", msg)
 
             if isTurn:
                 client.send(msg.encode(FORMAT))
@@ -209,5 +265,5 @@ while isRunning:
 
     pygame.display.update()
 
-
+pygame.quit()
 exit()
