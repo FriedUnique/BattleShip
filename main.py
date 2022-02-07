@@ -1,9 +1,21 @@
 import pygame
+from pygame.locals import *
 from utils import Vector2
 from sys import exit
+from random import randint
 
 import socket
+from time import sleep
 from threading import Thread
+
+"""
+TODO: Ship placement update
+TODO: Better name for grid and otherGrid
+TODO: Make the ship dragging mechanic drag in steps
+
+TODO: Game testing
+
+"""
 
 pygame.init()
 width, height = (1210, 600)
@@ -26,9 +38,10 @@ DISCONNECT = "!dDd"
 # map stuff
 GRIDSIZE = 75 # 8x8
 mapSize = 8 #int(width/GRIDSIZE) # always a square grid!
-screenOffset = mapSize * GRIDSIZE + 10
-grid = []
-otherGrid = []
+screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
+
+grid = [] # the side where you edit the ships
+otherGrid = [] # the side where you attack (see your attacks)
 
 isRunning = True
 canEdit = True # will change if game starts
@@ -56,6 +69,10 @@ class Boat():
         self.rect = pygame.Rect(self.pos.x-1, self.pos.y-1, self.dim.x, self.dim.y)
         boats.append(self)
 
+    def rotate(self):
+        self.dim.switch()
+        self.normDim.switch()
+
     def checkInBounds(self, _x, _y):
         for y in range(self.normDim.y):
             for x in range(self.normDim.x):
@@ -63,11 +80,11 @@ class Boat():
                 pY = (self.pos.y + (75*y))
 
                 if((_x+(75*x)+1) >= width):
-                    return self.oldPos
+                    return False
                 elif((_y+(75*y)+1) >= height):
-                    return self.oldPos
+                    return False
 
-        return Vector2(_x, _y)
+        return True
 
     def draw(self):
         self.rect = pygame.Rect(self.pos.x-1, self.pos.y-1, self.dim.x, self.dim.y)
@@ -87,9 +104,9 @@ class Boat():
 
 # instantiation of the boats
 boats = []
-Boat(Vector2(75, 75), Vector2(1, 1))
-#Boat(Vector2(75, 75), Vector2(3, 1))
-#Boat(Vector2(75, 75), Vector2(1, 2))
+for i in range(2): 
+    x, y = randint(0, mapSize-1) * GRIDSIZE, randint(0, mapSize-1) * GRIDSIZE
+    Boat(Vector2(x, y), Vector2(1, 2))
 
 
 def draw():
@@ -99,13 +116,13 @@ def draw():
 
             # empty slot
             if(grid[square] == 0):
-                pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+                pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(grid[square] == 1):
-                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE, GRIDSIZE))
+                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE, GRIDSIZE))
             elif(grid[square] == 2):
-                pygame.draw.rect(screen, HIT, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+                pygame.draw.rect(screen, HIT, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(grid[square] == 3):
-                pygame.draw.rect(screen, MISS, (x * GRIDSIZE, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+                pygame.draw.rect(screen, MISS, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
     for y in range(mapSize):
         for x in range(mapSize):
@@ -113,20 +130,18 @@ def draw():
 
             # empty slot
             if(otherGrid[square] == 0):
-                pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
-            elif(otherGrid[square] == 1):
-                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE, GRIDSIZE))
+                pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(otherGrid[square] == 2):
-                pygame.draw.rect(screen, HIT, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+                pygame.draw.rect(screen, HIT, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(otherGrid[square] == 3):
-                pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset, y * GRIDSIZE, GRIDSIZE - 2, GRIDSIZE - 2))
+                pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
 
     if canEdit:
         for boat in boats:
             boat.draw()
 
-
+# placing boats
 while canEdit:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -150,30 +165,37 @@ while canEdit:
                         y = boat.pos.y - event.pos[1]
                         offset: Vector2 = Vector2(x, y)
 
+            if selectedIndex == None: continue
+            
+            if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
+
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
-                if(selectedIndex == None):
-                    continue
-                
-                x = min(int(event.pos[0]/GRIDSIZE), mapSize-1) * GRIDSIZE
+                if selectedIndex == None: continue
+                selectedIndex = None
+
+            ''' x = min(int(event.pos[0]/GRIDSIZE), mapSize-1) * GRIDSIZE
                 y = min(int(event.pos[1]/GRIDSIZE), mapSize-1) * GRIDSIZE
 
-                if(boats[selectedIndex].rect.colliderect(pygame.Rect(width, 0, width+100, height + 100))):
+                if boats[selectedIndex].rect.colliderect(pygame.Rect(width, 0, width+100, height + 100)):
                     print("Overlap right")
                     boats[selectedIndex].pos = Vector2(150, 150)
-                elif(boats[selectedIndex].rect.colliderect(pygame.Rect(0, height, width+100, height + 100))):
+                elif boats[selectedIndex].rect.colliderect(pygame.Rect(0, height, width+100, height + 100)):
                     print("Overlap bottom")
                     boats[selectedIndex].pos = Vector2(150, 150)
                 else:
                     boats[selectedIndex].pos = Vector2(x, y)
-                    boats[selectedIndex].oldPos = Vector2(x, y)
-                selectedIndex = None
+                    boats[selectedIndex].oldPos = Vector2(x, y)'''
 
         elif event.type == pygame.MOUSEMOTION:
-            if selectedIndex is not None: # selected can be `0` so `is not None` is required
-                # move object
-                boats[selectedIndex].pos.x = event.pos[0] + offset.x
-                boats[selectedIndex].pos.y = event.pos[1] + offset.y
+            if selectedIndex is not None: # selected can be '0'
+                dimensions: Vector2 = boats[selectedIndex].normDim
+                boats[selectedIndex].pos.y = min(int(event.pos[1]/GRIDSIZE), mapSize-dimensions.y) * GRIDSIZE # y
+
+                #print(boats[selectedIndex].checkBounds())
+
+                if(event.pos[0] < screenOffset.x):
+                    boats[selectedIndex].pos.x = min(int(event.pos[0]/GRIDSIZE), mapSize-dimensions.x) * GRIDSIZE # x
 
 
     screen.fill((0, 0, 0)) #(160, 193, 217)
@@ -181,7 +203,7 @@ while canEdit:
 
     pygame.display.update()
 
-
+# client init and server connection setup
 if isRunning:
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
@@ -189,10 +211,23 @@ if isRunning:
     x = [str(int) for int in grid]
     msg = ",".join(x)
     msg = msg[:-2]
-    print(msg)
     client.send(msg.encode(FORMAT))
 
 received = ""
+
+def starPattern(lel: list, s: int):
+    l = max(s-1, 0)
+    r = min(s+1, mapSize**2-1) 
+    u = max(s-mapSize, 0)
+    d = min(s+mapSize, mapSize**2-1)
+
+    if s % mapSize != 0:
+        lel[l] = 3 if lel[l] != 1 else 2
+    if s % mapSize != mapSize-1:
+        lel[r] = 3 if lel[r] != 1 else 2
+    
+    lel[u] = 3 if lel[u] != 1 else 2
+    lel[d] = 3 if lel[d] != 1 else 2
 
 def recv():
     global received, isTurn, isFinished, isRunning
@@ -229,32 +264,37 @@ def recv():
         # if hit a boat (handled on the server) grid slot is a 2
         if isTurn == 0:
             #? check around the hit point and mark the other spots, like in the browser game
+            otherGrid[square] = 2 if isHit == True else 3
+            if isHit:
+                starPattern(otherGrid, square)
+        else:
             grid[square] = 2 if isHit == True else 3
+            if isHit:
+                starPattern(grid, square)
 
+# init the receive thread
 if isRunning:
-    # init the receive thread
     recvThread = Thread(target=recv)
     recvThread.start()
     #grid = blancMap()
 
-# draw your attacks
-# actual attacking
+# actual attacking draw your attacks
 while isRunning:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            client.send(msg.encode(FORMAT))
             isTurn = False
             isRunning = False
             canEdit = False
+            client.send(DISCONNECT.encode(FORMAT))
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            if(event.pos[0] < 610): continue
+            if(event.pos[0] < screenOffset.x): continue
 
             # on the right side
             square = int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE)
-            if grid[square] == 2 or grid[square] == 3: continue # not click on hit positions
+            if otherGrid[square] == 2 or otherGrid[square] == 3: continue # not click on hit positions
 
-            msg = "%02d" % (square,)
+            msg = "%02d" % (square,) # convert the clicked position to a 2 digit integer
 
             if isTurn:
                 client.send(msg.encode(FORMAT))
@@ -265,5 +305,7 @@ while isRunning:
 
     pygame.display.update()
 
+
+sleep(0.2)
 pygame.quit()
 exit()

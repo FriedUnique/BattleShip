@@ -26,6 +26,10 @@ class Vector2:
             return Vector2(self.x / other.x, self.y / self.y)
         return Vector2(self.x / other, self.y / other)
 
+    def switch(self):
+        x = self.x
+        self.x = self.y
+        self.y = x
 
 
     def __eq__(self, other):

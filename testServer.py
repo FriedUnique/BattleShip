@@ -47,14 +47,15 @@ def handle_player(conn, addr, start: bool):
     while connected:
         # position of mouse point in grid space
         recvMessage = conn.recv(2).decode(FORMAT)
-        square = int(recvMessage[:2])
-        square = "%02d" % (square,)
-
+        
         if(recvMessage == DISCONNECT):
             connections.pop(conn)
             connected = False
             # send to the other a force quit message
             break
+
+
+        square = int(recvMessage[:2])
         
         if other == None:
             other = list(connections.keys())[1]
@@ -64,9 +65,26 @@ def handle_player(conn, addr, start: bool):
         # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
 
         isHit = False
-        if otherGrid[int(square)] == 1:
+        if otherGrid[square] == 1:
             isHit = True
-            otherGrid[int(square)] = 2
+            otherGrid[square] = 2
+
+            # star pattern around 
+            l = max(square-1, 0)
+            r = min(square+1, mapSize**2-1) 
+            u = max(square-mapSize, 0)
+            d = min(square+mapSize, mapSize**2-1)
+
+            if square % mapSize != 0:
+                otherGrid[l] = 3 if otherGrid[l] == 0 else 1
+            if square % mapSize != mapSize-1:
+                otherGrid[r] = 3 if otherGrid[r] == 0 else 1
+            
+            otherGrid[u] = 3 if otherGrid[u] == 0 else 1
+            otherGrid[d] = 3 if otherGrid[d] == 0 else 1
+
+
+        square = "%02d" % (square,) # convert to a 2 digit format
 
         print(f"Player: {list(connections.keys()).index(conn)} >>  1{square}{isHit}")
         other.send(f"1{square}{int(isHit)}".encode(FORMAT))
