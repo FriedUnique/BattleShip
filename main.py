@@ -1,25 +1,30 @@
 from turtle import left
 import pygame
-from utils import Vector2
+from utils import Button, GameObject, Text, Vector2
 from sys import exit
 from random import randint
 from typing import List
 
 import socket
-from time import sleep
+from time import sleep, time
 from threading import Thread
 
 """
-TODO: Ship placement update
-TODO: Better name for grid and otherGrid
-TODO: Make the ship dragging mechanic drag in steps
+TODO: Main Menu Screen in beginning
+TODO: Custom username
 
 TODO: Game testing
 
 """
 
 pygame.init()
-width, height = (1210, 600)
+
+# map stuff
+mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
+GRIDSIZE = 60 # 8x8
+screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
+
+width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
 screen = pygame.display.set_mode((width, height))
 clock = pygame.time.Clock()
 
@@ -36,29 +41,60 @@ PORT = 5050
 ADDR = (HOST, PORT)
 DISCONNECT = "!dDd"
 
-# map stuff
-mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
-GRIDSIZE = 60 # 8x8
-screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
-
-grid = [] # the side where you edit the ships
-otherGrid = [] # the side where you attack (see your attacks)
-
-isRunning = True
-canEdit = True # will change if game starts
-isTurn = False
-isFinished = None
-
-selectedIndex: int = None # index can be 0, has to do with the boat-dragging mechanic
-
 def blancMap():
     _g = []
     for y in range(mapSize):
         for x in range(mapSize):
             _g.append(0)
     return _g
+
 grid = blancMap()
 otherGrid = blancMap()
+
+isRunning = True
+canEdit = True # will change if game starts
+isTurn = False
+isFinished = None
+menu = True
+
+selectedIndex: int = None # index can be 0, has to do with the boat-dragging mechanic
+client = None
+
+
+# main menu
+
+def quit(b):
+    global isRunning, canEdit, menu
+    isRunning = False
+    canEdit = False
+    menu = False
+
+def start(b):
+    global menu
+    menu = False
+    startButton.SetActive(False)
+    quitButton.SetActive(False)
+
+menuColor = (145, 149, 156)
+startButton = Button("startButton", Vector2((mapSize*GRIDSIZE)+5, 200), Vector2(20, 8), "START", font=pygame.font.Font(None, 52), 
+                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=start)
+quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, 400), Vector2(20, 8), "QUIT", font=pygame.font.Font(None, 52),
+                    normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
+
+while menu:
+    for event in pygame.event.get():
+        GameObject.HandleEventsAll(event)
+
+        if event.type == pygame.QUIT:
+            isRunning = False
+            canEdit = False
+            menu = False
+
+
+    screen.fill(menuColor)
+
+    GameObject.DrawAll(screen)
+    pygame.display.update()
 
 class Boat():
     def __init__(self, position: Vector2, dimensions: Vector2):
@@ -103,12 +139,10 @@ class Boat():
 
 
         for i in range(len(checkCoords)):
-            if checkCoords[i] == -1 or checkCoords[i] == mapSize**2:
+            if checkCoords[i] <= -1 or checkCoords[i] >= mapSize**2:
                 continue
 
-            #print(grid[checkCoords[i]])
-            
-            if grid[checkCoords[i]] == 1:
+            if grid[max(min(checkCoords[i], 100), 0)] == 1:
                 self.pos = Vector2(self.oldPos.x, self.oldPos.y)
                 grid = blancMap()
 
@@ -135,13 +169,9 @@ class Boat():
 
 # instantiation of the boats
 boats: List[Boat] = []
-"""for i in range(5):
-    x, y = randint(0, mapSize-1) * GRIDSIZE, randint(0, mapSize-2) * GRIDSIZE
-    Boat(Vector2(x, y), Vector2(1, randint(1,4)))"""
 
 Boat(Vector2(60, 60), Vector2(2, 1))
 Boat(Vector2(180, 60), Vector2(2, 1))
-
 
 for boat in boats:
     boat.addToGrid()
@@ -175,25 +205,57 @@ def draw():
             elif(otherGrid[square] == 3):
                 pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
+    
+    pygame.draw.rect(screen, (145, 149, 156), (0, mapSize*GRIDSIZE, width, 100))
+
+    GameObject.DrawAll(screen) # UI
+    
 
     if canEdit:
         for boat in boats:
             boat.draw()
 
+# listener in the startButton
+def joinGame(b: Button):
+    global grid, canEdit, isRunning, isTurn, client
+    
+    try:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect(ADDR)
+
+        grid = blancMap()
+        for boat in boats:
+            boat.addToGrid()
+
+        x = [str(int) for int in grid]
+        msg = ",".join(x)
+        client.send(msg.encode(FORMAT))
+        startButton.SetActive(False)
+        canEdit = False
+        
+    except ConnectionRefusedError:
+        print(f"Connection actively refused by host @ {HOST}!")
+    
+
+# UI init
+font = pygame.font.Font(None, 38)
+x = int((mapSize*GRIDSIZE)/2)
+y = mapSize*GRIDSIZE + 50
+
+Text("text", Vector2(x, y), "Your ships", (0, 0, 0), font=font)
+Text("text", Vector2((mapSize*GRIDSIZE)*1.5, y), "Oponent Ships", (0, 0, 0), font=font)
+
+startButton = Button("start", Vector2(mapSize*GRIDSIZE, y), Vector2(10, 4))
+startButton.AddEventListener(Button.ButtonEvents.OnClick, joinGame)
+
 # placing boats
 while canEdit:
     for event in pygame.event.get():
+        GameObject.HandleEventsAll(event)
+
         if event.type == pygame.QUIT:
             isRunning = False
             canEdit = False
-
-        elif event.type == pygame.KEYDOWN:
-            # confirm you loadout
-            if event.key == pygame.K_SPACE:
-                grid = blancMap()
-                for i, boat in enumerate(boats):
-                    boat.addToGrid()
-                canEdit = False
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
@@ -207,6 +269,7 @@ while canEdit:
 
             if selectedIndex == None: continue
             
+            # scroll
             if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
 
         elif event.type == pygame.MOUSEBUTTONUP:
@@ -233,14 +296,6 @@ while canEdit:
 
     pygame.display.update()
 
-# client init and server connection setup
-if isRunning:
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(ADDR)
-
-    x = [str(int) for int in grid]
-    msg = ",".join(x)
-    client.send(msg.encode(FORMAT))
 
 received = ""
 
@@ -320,7 +375,6 @@ def recv():
 if isRunning:
     recvThread = Thread(target=recv)
     recvThread.start()
-    #grid = blancMap()
 
 # actual attacking draw your attacks
 while isRunning:
@@ -355,30 +409,3 @@ while isRunning:
 sleep(0.2)
 pygame.quit()
 exit()
-
-
-
-"""
-    checkCoords: List[int] = [
-        max(startCheck, -1),
-        max(startCheck + 1, -1),
-        max(startCheck + 2, -1),
-
-        square-1 if str(yGridPos)[0] == str(square-1)[0] or len(str(square-1)) == 1 else -1, # have to be on the same line as square
-        square+1 if str(yGridPos)[0] == str(square+1)[0] or len(str(square+1)) == 1 else -1,
-
-        min(startCheck + (mapSize*2), mapSize**2),
-        min(startCheck + (mapSize*2) + 1, mapSize**2),
-        min(startCheck + (mapSize*2) + 2, mapSize**2)
-    ]
-    #t2 = startCheck + 1 if startCheck + 1 > 0 else -1
-    #t3 = startCheck + 2 if str(startCheck+1)[0] == str(startCheck+2)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1
-
-    #l2 = yLow + 1 if yLow+1 < mapSize**2 else -1
-    #l3 = yLow+2 if str(yLow+1)[0] == str(yLow+2)[0] and yLow+2 < mapSize**2 else -1
-
-    checkCoords.append(startCheck + x if startCheck + x > 0 else -1) # top side check
-
-    bottomCheck = (self.normDim.y+1)*mapSize + startCheck + x
-    checkCoords.append(bottomCheck + x if bottomCheck < mapSize**2 else -1) #  bottom
-"""

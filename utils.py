@@ -1,5 +1,14 @@
 import math
+from abc import abstractmethod
+from typing import List, Dict
+from enum import Enum
+import pygame
 
+gridSize = 60
+mapSize = 8
+
+pygame.init()
+FONT = pygame.font.Font(None, 32)
 
 class Vector2:    
     def __init__(self, x: float, y: float):
@@ -74,3 +83,289 @@ class Vector2:
 
     def angle_between_vec(vec1, vec2):
         return math.acos(Vector2.Dot(vec1, vec2))
+
+class GameObject:
+    def __init__(self, name, goSprite, position: Vector2, scale = Vector2(1, 1)):
+        self.name = self.nameing(name)
+        self.sprite = goSprite
+        self.position = position
+        self.scale = scale
+        self.rect = self.sprite.get_rect(center=(position.x, position.y)) #topleft
+
+        self.isActive = True
+
+    def nameing(self, targetName) -> str:
+        allVals = list(allGOs.keys())
+        targetLen = len(targetName)
+
+        count = 0
+        for i in range(len(allVals)):
+            if(allVals[i][:targetLen] == targetName):
+                count += 1
+        
+        if(count > 0):
+            n = targetName + f"{count}"
+            allGOs[n] = self
+            return n
+            #print(f'Warning! GameObject "{targetName}" has been instantiated with a already existing name. The name changed to {n}!')
+        else:
+            allGOs[targetName] = self
+            return targetName
+
+    def SetActive(self, activate):
+        self.isActive = activate        
+
+    def Destroy(self, time: float = 0):
+        if self.name in allGOs:
+            del allGOs[self.name]
+            del self
+
+    @abstractmethod
+    def update(self, dt: float):
+        pass
+
+    @abstractmethod
+    def handleUIEvents(self, event):
+        pass
+
+    @abstractmethod
+    def draw(self, surface):
+        pass
+
+    @abstractmethod
+    def handleEvents(self, event):
+        pass
+
+    def Find(name: str):
+        if name in allGOs:
+            return allGOs[name]
+        else:
+            print(f"Provided value does not exist ({name})!")
+            return None
+            
+    def HandleUIEvents(event):
+        gos = list(allGOs.values())
+        for go in gos:
+            if (not go.isActive): continue
+            if(go.isGUI):
+                go.handleUIEvents(event)
+    
+    def UpdateAll():
+        gos = list(allGOs.values())
+        for go in gos:
+            if(not go.isActive): continue
+            go.update(0)
+
+    def HandleEventsAll(event):
+        gos = list(allGOs.values())
+        for go in gos:
+            if(not go.isActive): continue
+            go.handleEvents(event)
+
+    def DrawAll(s):
+        gos = list(allGOs.values())
+        for go in gos:
+            if(not go.isActive): continue
+            go.draw(s)
+
+class Text(GameObject):
+    def __init__(self, name="TextField", position = Vector2(0, 0), text = "", color = (255, 255, 255), font = pygame.font.Font(None, 32)):
+        self.text = text
+        self.color = color
+        self.font = font
+
+        txt_surface = font.render(self.text, True, self.color) #change
+
+        super().__init__(name, txt_surface, position)
+
+    def draw(self, surface):
+        surface.blit(self.sprite, self.rect) #blit a image
+    
+    def changeText(self, newText: str):
+        self.text = newText
+        self.sprite = self.font.render(self.text, True, self.color) #change
+
+class Button(GameObject):
+    """
+    Rect will be constructed around the position provided
+    """
+    class TextAlignement(Enum):
+        TopLeft = 1
+        TopMiddle = 2
+        TopRight = 3
+
+        CenterLeft = 4
+        CenterMiddle = 5
+        CenterRight = 6
+        BottomLeft = 7
+        BottomMiddle = 8
+        BottomRight = 9
+
+    class ButtonStates(Enum):
+        Idle = 1
+        Hover = 2
+        Pressing = 3
+
+    class ButtonEvents(Enum):
+        """
+        OnClick -> Button
+        """
+        OnClick = 1
+
+    def __init__(self, name = "Button", position = Vector2(0, 0), scale = Vector2(1, 1), 
+            text = "Button", textColor = (0, 0, 0), font = pygame.font.Font(None, 32), textAlignment = TextAlignement.CenterMiddle, 
+            normalBackground = (255, 255, 255), onHoverBackground = (220, 230, 235), onPressedBackground = (220, 230, 235), 
+            onClicked = lambda x: x, onHover = lambda y: y):
+
+        position = Vector2(position.x - int(10*scale.x/2), position.y - int(10*scale.y/2))
+
+        self.buttonRect = pygame.Rect((position.x, position.y, 10*scale.x, 10*scale.y))
+        self.state: self.ButtonStates = self.ButtonStates.Idle
+        self.textColor = textColor
+        self.font = font
+        self.txt_surface = font.render(text, True, textColor)
+        self.ta = textAlignment
+
+        self.textPos = (position.x, position.y)
+        
+        #customization
+        self.text = text
+        self.normalBackground = normalBackground
+        self.onHoverBackground = onHoverBackground
+        self.onPressedBackground = onPressedBackground
+
+        super().__init__(name, self.txt_surface, position, scale)
+
+        # event
+        self.onClickEventListeners = list()
+        self.AddEventListener(self.ButtonEvents.OnClick, onClicked)
+
+        self.alignText()
+
+    def alignText(self):
+        textW, textH = self.font.size(self.text)
+        x = self.position.x
+        y = self.position.y
+        w = self.scale.x*10
+        h = self.scale.y*10
+
+        #* Top
+        if(self.ta == self.TextAlignement.TopLeft):
+            self.textPos = (x, y)
+        elif(self.ta == self.TextAlignement.TopMiddle):
+            self.textPos = (x + w/2 - textW/2, y)
+        elif(self.ta == self.TextAlignement.TopRight):
+            self.textPos = (x + textW/2 + 5, y)
+
+        #*Center
+        elif(self.ta == self.TextAlignement.CenterLeft):
+            self.textPos = (x, y + h/2 - textH/2)
+        elif(self.ta == self.TextAlignement.CenterMiddle):
+            self.textPos = (x + w/2 - textW/2, y + h/2 - textH/2)
+        elif(self.ta == self.TextAlignement.CenterRight):
+            self.textPos = (x + textW/2 + 5, y + h/2 - textH/2)
+
+        #*Bottom
+        elif(self.ta == self.TextAlignement.BottomLeft):
+            self.textPos = (x, y + h - textH)
+        elif(self.ta == self.TextAlignement.BottomMiddle):
+            self.textPos = (x + w/2 - textW/2, y + h - textH)
+        elif(self.ta == self.TextAlignement.BottomRight):
+            self.textPos = (x + textW/2 + 5, y + h - textH)
+
+        else:
+            raise ValueError(f"{self.ta.name} not implemented yet, or it is a bad type!")
+
+        self.textPos = roundTupleValues(self.textPos)
+
+    def draw(self, surface):
+        if(self.state == self.ButtonStates.Idle):
+            pygame.draw.rect(surface, self.normalBackground, self.buttonRect)
+        elif(self.state == self.ButtonStates.Hover):
+            pygame.draw.rect(surface, self.onHoverBackground, self.buttonRect)
+        elif(self.state == self.ButtonStates.Pressing):
+            pygame.draw.rect(surface, self.onPressedBackground, self.buttonRect)
+        else:
+            raise ValueError(f"The button-state {self.state.name} is not accepted!")
+
+        surface.blit(self.txt_surface, self.textPos)
+    
+    def handleEvents(self, event):
+        try:
+            if pygame.mouse.get_pressed()[0]:
+                if self.buttonRect.collidepoint(pygame.mouse.get_pos()):
+                    self.state = self.ButtonStates.Pressing
+                    #* calling all listeners
+                    for listener in self.onClickEventListeners:
+                        listener(self) # calls the event Listener with the parameter self
+
+                else:
+                    self.state = self.ButtonStates.Idle
+            elif not pygame.mouse.get_pressed()[0]:
+                if self.buttonRect.collidepoint(pygame.mouse.get_pos()):
+                    self.state = self.ButtonStates.Hover
+                else:
+                    self.state = self.ButtonStates.Idle
+        except AttributeError:
+            pass
+    
+    def changeTa(self, alignement: TextAlignement):
+        self.ta = alignement
+        self.alignText()
+
+    def changeText(self, newText: str):
+        self.text = newText
+        self.txt_surface = self.font.render(self.text, True, self.textColor)
+
+    def AddEventListener(self, event: ButtonEvents, function):
+        if(event == self.ButtonEvents.OnClick):
+            self.onClickEventListeners.append(function);
+        else:
+            raise ValueError("kadlsamlsdklsa")
+
+    def RemoveEventListener(self, event: ButtonEvents, function):
+        if(event == self.ButtonEvents.OnClick):
+            for i in range(len(self.onClickEventListeners)):
+                if(self.onClickEventListeners[i].__name__ == function.__name__):
+                    del self.onClickEventListeners[i]
+                    break
+        else:
+            raise ValueError("asdnjsakldsajkldsad")
+
+
+def roundTupleValues(t: tuple):
+    ts = list(t)
+    for i in range(len(ts)):
+        ts[i] = round(ts[i])
+
+    return tuple(ts)
+
+
+allGOs: Dict[str, GameObject] = dict()
+allActiveGOs: Dict[str, GameObject] = dict()
+
+
+"""
+    checkCoords: List[int] = [
+        max(startCheck, -1),
+        max(startCheck + 1, -1),
+        max(startCheck + 2, -1),
+
+        square-1 if str(yGridPos)[0] == str(square-1)[0] or len(str(square-1)) == 1 else -1, # have to be on the same line as square
+        square+1 if str(yGridPos)[0] == str(square+1)[0] or len(str(square+1)) == 1 else -1,
+
+        min(startCheck + (mapSize*2), mapSize**2),
+        min(startCheck + (mapSize*2) + 1, mapSize**2),
+        min(startCheck + (mapSize*2) + 2, mapSize**2)
+    ]
+    #t2 = startCheck + 1 if startCheck + 1 > 0 else -1
+    #t3 = startCheck + 2 if str(startCheck+1)[0] == str(startCheck+2)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1
+
+    #l2 = yLow + 1 if yLow+1 < mapSize**2 else -1
+    #l3 = yLow+2 if str(yLow+1)[0] == str(yLow+2)[0] and yLow+2 < mapSize**2 else -1
+
+    checkCoords.append(startCheck + x if startCheck + x > 0 else -1) # top side check
+
+    bottomCheck = (self.normDim.y+1)*mapSize + startCheck + x
+    checkCoords.append(bottomCheck + x if bottomCheck < mapSize**2 else -1) #  bottom
+"""
