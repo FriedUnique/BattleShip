@@ -8,13 +8,34 @@ PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
 FORMAT = 'utf-8'
 ADDR = (HOST, PORT)
 DISCONNECT = "!dDd"
-mapSize = 8
+mapSize = 10
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
 
 connections = {}
 grids = []
+
+def starPattern(lel: list, s: int):
+    l = max(s-1, 0)
+    r = min(s+1, mapSize**2-1)
+    u = max(s-mapSize, 0)
+    d = min(s+mapSize, mapSize**2-1)
+
+    if s % mapSize != 0:
+        if lel[l] != 1 and lel[l] != 2:
+            lel[l] = 3
+    if s % mapSize != mapSize-1:
+        if lel[r] != 1 and lel[r] != 2:
+            lel[r] = 3
+    
+    if lel[u] != 1 and lel[u] != 2:
+        lel[u] = 3
+
+    if lel[d] != 1 and lel[d] != 2:
+        lel[d] = 3
+    
+    return [str(lel[l]), str(lel[r]), str(lel[u]), str(lel[d])] # 4
 
 def handle_player(conn, addr, start: bool):
     connected = True
@@ -65,30 +86,24 @@ def handle_player(conn, addr, start: bool):
         # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
 
         isHit = False
+        otherSquares = ["0", "0", "0", "0"] # change the standart values
+        square = min(square, mapSize**2-1)
+        print(square, len(otherGrid), len(grid))
+
         if otherGrid[square] == 1:
             isHit = True
             otherGrid[square] = 2
 
-            # star pattern around 
-            l = max(square-1, 0)
-            r = min(square+1, mapSize**2-1) 
-            u = max(square-mapSize, 0)
-            d = min(square+mapSize, mapSize**2-1)
-
-            if square % mapSize != 0:
-                otherGrid[l] = 3 if otherGrid[l] == 0 else 1
-            if square % mapSize != mapSize-1:
-                otherGrid[r] = 3 if otherGrid[r] == 0 else 1
-            
-            otherGrid[u] = 3 if otherGrid[u] == 0 else 1
-            otherGrid[d] = 3 if otherGrid[d] == 0 else 1
+            otherSquares = starPattern(otherGrid, square) # returns the value of the other squares
 
 
         square = "%02d" % (square,) # convert to a 2 digit format
 
         print(f"Player: {list(connections.keys()).index(conn)} >>  1{square}{isHit}")
-        other.send(f"1{square}{int(isHit)}".encode(FORMAT))
-        conn.send(f"0{square}{int(isHit)}".encode(FORMAT))
+        other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
+
+        # l,r,u,d
+        conn.send(f"0{square}{int(isHit)}{''.join(otherSquares)}".encode(FORMAT)) #8
 
         # win condition
         if 1 not in otherGrid:
