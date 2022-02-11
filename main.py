@@ -1,4 +1,4 @@
-from turtle import left
+from ntpath import join
 import pygame
 from utils import Button, GameObject, Text, Vector2
 from sys import exit
@@ -6,11 +6,13 @@ from random import randint
 from typing import List
 
 import socket
-from time import sleep, time
+from time import sleep
 from threading import Thread
 
 """
 TODO: Main Menu Screen in beginning
+TODO: Close gameloop -> when game finished go to main menu
+TODO: If hit maybe let the striker shoot again.
 TODO: Custom username
 
 TODO: Game testing
@@ -58,7 +60,7 @@ isFinished = None
 menu = True
 
 selectedIndex: int = None # index can be 0, has to do with the boat-dragging mechanic
-client = None
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 
 # main menu
@@ -75,26 +77,44 @@ def start(b):
     startButton.SetActive(False)
     quitButton.SetActive(False)
 
+    joinButton.SetActive(True)
+    youShipsText.SetActive(True)
+    otherShipsText.SetActive(True)
+
 menuColor = (145, 149, 156)
 startButton = Button("startButton", Vector2((mapSize*GRIDSIZE)+5, 200), Vector2(20, 8), "START", font=pygame.font.Font(None, 52), 
                 normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=start)
 quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, 400), Vector2(20, 8), "QUIT", font=pygame.font.Font(None, 52),
                     normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
 
-while menu:
-    for event in pygame.event.get():
-        GameObject.HandleEventsAll(event)
+def menuLoop():
+    global menuColor, startButton, quitButton, isRunning, canEdit, menu, joinButton, youShipsText, otherShipsText
+    if menu:
+        startButton.SetActive(True)
+        quitButton.SetActive(True)
 
-        if event.type == pygame.QUIT:
-            isRunning = False
-            canEdit = False
-            menu = False
+        joinButton.SetActive(False)
+        youShipsText.SetActive(False)
+        otherShipsText.SetActive(False)
+    else:
+        startButton.SetActive(False)
+        quitButton.SetActive(False)
 
 
-    screen.fill(menuColor)
+    while menu:
+        for event in pygame.event.get():
+            GameObject.HandleEventsAll(event)
 
-    GameObject.DrawAll(screen)
-    pygame.display.update()
+            if event.type == pygame.QUIT:
+                isRunning = False
+                canEdit = False
+                menu = False
+
+
+        screen.fill(menuColor)
+
+        GameObject.DrawAll(screen)
+        pygame.display.update()
 
 class Boat():
     def __init__(self, position: Vector2, dimensions: Vector2):
@@ -170,8 +190,8 @@ class Boat():
 # instantiation of the boats
 boats: List[Boat] = []
 
-Boat(Vector2(60, 60), Vector2(2, 1))
-Boat(Vector2(180, 60), Vector2(2, 1))
+Boat(Vector2(60, 60), Vector2(1, 1))
+#Boat(Vector2(180, 60), Vector2(2, 1))
 
 for boat in boats:
     boat.addToGrid()
@@ -217,10 +237,9 @@ def draw():
 
 # listener in the startButton
 def joinGame(b: Button):
-    global grid, canEdit, isRunning, isTurn, client
+    global grid, canEdit, isRunning, isTurn, client, joinButton, menu
     
     try:
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect(ADDR)
 
         grid = blancMap()
@@ -230,71 +249,76 @@ def joinGame(b: Button):
         x = [str(int) for int in grid]
         msg = ",".join(x)
         client.send(msg.encode(FORMAT))
-        startButton.SetActive(False)
+        joinButton.SetActive(False)
         canEdit = False
+        #menu = False
+
+        recvThread = Thread(target=recv)
+        recvThread.start()
+        sleep(0.1) # so fully started
         
     except ConnectionRefusedError:
         print(f"Connection actively refused by host @ {HOST}!")
-    
 
-# UI init
+joinButton = None
+
+
 font = pygame.font.Font(None, 38)
 x = int((mapSize*GRIDSIZE)/2)
 y = mapSize*GRIDSIZE + 50
 
-Text("text", Vector2(x, y), "Your ships", (0, 0, 0), font=font)
-Text("text", Vector2((mapSize*GRIDSIZE)*1.5, y), "Oponent Ships", (0, 0, 0), font=font)
-
-startButton = Button("start", Vector2(mapSize*GRIDSIZE, y), Vector2(10, 4))
-startButton.AddEventListener(Button.ButtonEvents.OnClick, joinGame)
-
+youShipsText = Text("yShipsText", Vector2(x, y), "Your ships", (0, 0, 0), font=font)
+otherShipsText = Text("otherShipsText", Vector2((mapSize*GRIDSIZE)*1.5, y), "Oponent Ships", (0, 0, 0), font=font)
+joinButton = Button("joinButton", Vector2(mapSize*GRIDSIZE, y), Vector2(10, 4), onClicked=joinGame)
 # placing boats
-while canEdit:
-    for event in pygame.event.get():
-        GameObject.HandleEventsAll(event)
+def editBoats():
+    global isRunning, grid, canEdit, selectedIndex, boats, joinButton
 
-        if event.type == pygame.QUIT:
-            isRunning = False
-            canEdit = False
+    while canEdit:
+        for event in pygame.event.get():
+            GameObject.HandleEventsAll(event)
 
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:
-                for i, boat in enumerate(boats):
-                    if boat.rect.collidepoint(event.pos):
-                        grid = blancMap()
-                        selectedIndex = i
-                        x = boat.pos.x - event.pos[0]
-                        y = boat.pos.y - event.pos[1]
-                        offset: Vector2 = Vector2(x, y)
+            if event.type == pygame.QUIT:
+                isRunning = False
+                canEdit = False
 
-            if selectedIndex == None: continue
-            
-            # scroll
-            if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    for i, boat in enumerate(boats):
+                        if boat.rect.collidepoint(event.pos):
+                            grid = blancMap()
+                            selectedIndex = i
+                            x = boat.pos.x - event.pos[0]
+                            y = boat.pos.y - event.pos[1]
 
-        elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
                 if selectedIndex == None: continue
-                for i, boat in enumerate(boats):
-                    boat.addToGrid()
-
-                boats[selectedIndex].check()
-
-                selectedIndex = None
-
-        elif event.type == pygame.MOUSEMOTION:
-            if selectedIndex is not None: # selected can be '0'
-                dimensions: Vector2 = boats[selectedIndex].normDim
-                boats[selectedIndex].pos.y = min(int(event.pos[1]/GRIDSIZE), mapSize-dimensions.y) * GRIDSIZE # y
                 
-                if(event.pos[0] < screenOffset.x):
-                    boats[selectedIndex].pos.x = min(int(event.pos[0]/GRIDSIZE), mapSize-dimensions.x) * GRIDSIZE # x
+                # scroll
+                if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    if selectedIndex == None: continue
+                    for i, boat in enumerate(boats):
+                        boat.addToGrid()
+
+                    boats[selectedIndex].check()
+
+                    selectedIndex = None
+
+            elif event.type == pygame.MOUSEMOTION:
+                if selectedIndex is not None: # selected can be '0'
+                    dimensions: Vector2 = boats[selectedIndex].normDim
+                    boats[selectedIndex].pos.y = min(int(event.pos[1]/GRIDSIZE), mapSize-dimensions.y) * GRIDSIZE # y
+                    
+                    if(event.pos[0] < screenOffset.x):
+                        boats[selectedIndex].pos.x = min(int(event.pos[0]/GRIDSIZE), mapSize-dimensions.x) * GRIDSIZE # x
 
 
-    screen.fill((0, 0, 0)) #(160, 193, 217)
-    draw()
+        screen.fill((0, 0, 0)) #(160, 193, 217)
+        draw()
 
-    pygame.display.update()
+        pygame.display.update()
 
 
 received = ""
@@ -326,8 +350,19 @@ def starPattern(lel: list, s: int, kenek: list = None):
         lel[d] = 3
 
 
+def resetToMenu():
+    global menu, canEdit, youShipsText, otherShipsText, grid, otherGrid, isTurn
+    print("menu time")
+    isTurn = False
+    menu = True
+    youShipsText.SetActive(False)
+    otherShipsText.SetActive(False)
+    grid = blancMap()
+    otherGrid = blancMap()
+    sleep(0.1)
+
 def recv():
-    global received, isTurn, isFinished, isRunning
+    global received, isTurn, isFinished, isRunning, menu, canEdit, youShipsText, otherShipsText, grid, otherGrid
     startMsg = client.recv(2).decode(FORMAT)
     isTurn = bool(int(startMsg[1]))
     print(f"start message recved! my turn: {isTurn}!")
@@ -348,10 +383,11 @@ def recv():
         # end of game, win/loose
         # 2{playerIndex}{bool: didWin}
         if int(received[0]) > 1:
-            isTurn = False
-            isFinished = True
+            # ! game loop
             t = int(received[2])
             print(f"Game finished! You {'won' if t==1 else 'lost'}!")
+            isFinished = True
+            # splash screen, YOU WON or YOU LOST!
             break
 
         isTurn = bool(int(received[0]))
@@ -371,13 +407,14 @@ def recv():
             if isHit:
                 starPattern(grid, square)
 
-# init the receive thread
-if isRunning:
-    recvThread = Thread(target=recv)
-    recvThread.start()
 
 # actual attacking draw your attacks
 while isRunning:
+
+    menuLoop()
+
+    editBoats()
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             isTurn = False
@@ -385,11 +422,14 @@ while isRunning:
             canEdit = False
             client.send(DISCONNECT.encode(FORMAT))
 
+        elif event.type == pygame.KEYDOWN and isFinished:
+            resetToMenu()
+
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if(event.pos[0] < screenOffset.x): continue
 
             # on the right side
-            square = int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE)
+            square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
             #square = min(square, mapSize**2-1)
 
             if otherGrid[square] == 2 or otherGrid[square] == 3: continue # not click on hit positions
@@ -397,6 +437,7 @@ while isRunning:
             msg = "%02d" % (square,) # convert the clicked position to a 2 digit integer
 
             if isTurn:
+                #! error may occure when already disconnected
                 client.send(msg.encode(FORMAT))
                 isTurn = False
 
