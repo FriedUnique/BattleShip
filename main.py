@@ -1,4 +1,3 @@
-from ntpath import join
 import pygame
 from utils import Button, GameObject, Text, Vector2
 from sys import exit
