@@ -23,6 +23,7 @@ server.bind(ADDR)
 grids = []
 
 class Room:
+    # TODO: Rename room if roomname already exists
     def __init__(self, name: str):
         self.name = hashlib.shake_256(name.encode(FORMAT)).hexdigest(8) # == 16 in length
         self.count = 0
@@ -98,6 +99,7 @@ def handle_player(conn, addr, room: Room):
         connected = False
         return
 
+    # map(int, grid)
     for i in range(0, len(grid)):
         grid[i] = int(grid[i])
 
@@ -107,18 +109,18 @@ def handle_player(conn, addr, room: Room):
     room.ready += 1
 
     while room.ready < 0:
-        print(testConnection(conn))
         sleep(0.1)
-        # if not testConnection(conn):
-        #     connected = False
-        #     break
+        if not testConnection(conn):
+            connected = False
+            break
 
-    print("both here")
+    print(room.connections)
+
     
     # wait until there are two players
     # send a start message to all players. the player with the bool isTurn variable will start 
 
-    print(room.connections.index(conn))
+    #print(room.connections.index(conn))
     conn.send(f"1{room.connections.index(conn)}".encode(FORMAT))
 
     while connected:
@@ -132,27 +134,31 @@ def handle_player(conn, addr, room: Room):
             break
         elif recvMessage == SURRENDER:
             conn.send(SURRENDER.encode(FORMAT))
-            other.send(f"2{list(room.connections.keys()).index(conn)}1".encode(FORMAT))
+            other.send(f"2{room.connections.index(conn)}1".encode(FORMAT))
             continue
         elif not testConnection(conn):
             print('bad or interrupted connection. closeing game')
-            other.send(f"2{list(room.connections.keys()).index(conn)}1".encode(FORMAT)) # other wins because client to stupid to by connection
+            other.send(f"2{room.connections.index(conn)}1".encode(FORMAT)) # other wins because client to stupid to by connection
             break
 
 
         square = int(recvMessage[:2])
         
         if other == None:
-            other = list(room.connections.keys())[1]
+            x = list(room.connections)
+            x.remove(conn)
+            
+            other = x[0]
         if otherGrid == None:
-            otherGrid = grids[1]
+            g = list(grids)
+            g.remove(grid)
+            otherGrid = list(map(int, g[0]))
 
         # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
 
         isHit = False
         otherSquares = ["0", "0", "0", "0"] # change the standart values
         square = min(square, mapSize**2-1)
-        print(square, len(otherGrid), len(grid))
 
         if otherGrid[square] == 1:
             isHit = True
@@ -163,7 +169,7 @@ def handle_player(conn, addr, room: Room):
 
         square = "%02d" % (square,) # convert to a 2 digit format
 
-        #print(f"Player: {list(connections.keys()).index(conn)} >>  1{square}{isHit}")
+        #print(f"Player: {list(connections).index(conn)} >>  1{square}{isHit}")
         #{isTurn}{attackedSquare}{isHit}
         other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
 
@@ -173,8 +179,8 @@ def handle_player(conn, addr, room: Room):
         # win condition
         if 1 not in otherGrid:
             # win
-            other.send(f"2{list(room.connections.keys()).index(conn)}0".encode(FORMAT))  # other looses
-            conn.send(f"2{list(room.connections.keys()).index(conn)}1".encode(FORMAT))   # you win
+            other.send(f"2{room.connections.index(conn)}0".encode(FORMAT))  # other looses
+            conn.send(f"2{room.connections.index(conn)}1".encode(FORMAT))   # you win
             room.isFinished = True
             break
 
@@ -182,7 +188,7 @@ def handle_player(conn, addr, room: Room):
     conn.close()
     print("removed")
 
-def findRoom(name: str) -> Room:
+def findRoom(name: str):
     for room in rooms:
         if room.name == name:
             return room
@@ -198,9 +204,8 @@ def start():
     print("[SERVER] Server launch successful!")
     while True:
         conn, addr = server.accept()
-        print(conn.getpeername())
 
-        initMessage = conn.recv(20).decode(FORMAT) # buffer 9 when creating room and 17 when joining with hash
+        initMessage = conn.recv(20).decode(FORMAT) # buffer 17 when creating room and 17 when joining with hash
         joinMethod = initMessage[0].lower()
         roomName = initMessage[1:].lower()
 
@@ -217,7 +222,7 @@ def start():
             room = findRoom(roomName)
 
             if room == None:
-                conn.send(f"{DISCONNECT}no room found!".encode(FORMAT))
+                conn.send(f"{DISCONNECT}No Room Found!".encode(FORMAT))
                 conn.close()
                 continue
 

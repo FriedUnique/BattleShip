@@ -1,13 +1,13 @@
 from math import floor
 import pygame
-from utils import Button, GameObject, Text, Vector2, specialMessages
-from sys import exit
-from random import randint
+from utils import Button, GameObject, InputField, Text, Vector2, specialMessages
 from typing import List
 
 import socket
 from time import sleep
 from threading import Thread
+
+#import json
 
 """
 TODO: Main Menu Screen in beginning
@@ -20,19 +20,24 @@ TODO: Join and Create Rooms for friends to join
     - Create Room with a name, which will be hashed
 
 TODO: Game testing
+TODO: Room renameing when room name already exists
 
 """
 
 pygame.init()
 
+# region global variable declaration
+
 # map stuff
 mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
-GRIDSIZE = 40 # 8x8
+GRIDSIZE = 60 # 8x8
 screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
 
 width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
 screen = pygame.display.set_mode((width, height))
 clock = pygame.time.Clock()
+
+alphaSurface = pygame.Surface((width, height), pygame.SRCALPHA)
 
 # colors
 EMPTY = (160, 193, 217) # 0
@@ -70,26 +75,37 @@ selectedIndex: int = None # index can be 0, has to do with the boat-dragging mec
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 
+# endregion
+
+
+errorAlpha = 80
+errorTextColor = (186, 34, 36)
+errorBackground = (100, 245, 67, errorAlpha)
+
 class ErrorText(GameObject):
     def __init__(self):
         w, h = int(width/2), int(height/2)
 
-        self.text = Text("errorText", Vector2(w, h), color=(186, 34, 36))
+        self.text = Text("errorText", Vector2(w, h), color=errorTextColor)
         self.closeButton = Button("acceptErrorButton", Vector2(w, height-50), Vector2(15, 6), onClicked=self.acceptError,
                             text="ok")
+        
         self.closeButton.SetActive(False)
         self.text.SetActive(False)
 
-        self.background = (0, 0, 0)
         self.toggled = False
 
         super().__init__("errorText", None, Vector2(w, h))
 
     def update(self, _t):
         if(self.toggled):
-            pygame.draw.rect(screen, self.background, (0, 0, width, height))
-            self.text.draw(screen)
-            self.closeButton.draw(screen)
+            pygame.draw.rect(alphaSurface, errorBackground, (0, 0, width, height))
+            self.text.draw(alphaSurface)
+            self.closeButton.draw(alphaSurface)
+            screen.blit(alphaSurface, alphaSurface.get_rect())
+
+            #! important ! if error screen is up, it stops the user from clicking on stuff, including the close button
+            self.closeButton.handleEvents(None) # button doesn't use the event anyway
 
     def acceptError(self, _b):
         # close popup 
@@ -103,114 +119,6 @@ class ErrorText(GameObject):
 
         self.text.changeText(msg)
         self.toggled = True
-
-errorMsg = ErrorText()
-
-# main menu
-
-def quit(b):
-    global isRunning, canEdit, menu
-    isRunning = False
-    canEdit = False
-    menu = False
-
-def connectClient():
-    try:
-        client.connect(ADDR)
-        return True
-        
-    except ConnectionRefusedError:
-        print(f"Connection actively refused by host @ {HOST}!")
-        errorMsg.loadError("Neger is a neger lel")
-        return False
-
-def start():
-    global menu
-    menu = False
-    createButton.SetActive(False)
-    quitButton.SetActive(False)
-    joinOtherButton.SetActive(False)
-
-    startButton.SetActive(True)
-    youShipsText.SetActive(True)
-    otherShipsText.SetActive(True)
-
-
-def create(b):
-    global menu, ROOM
-    if not connectClient():
-        return
-
-    roomName = "room" # max 8 chrs long
-    client.send(f"c{roomName}".encode(FORMAT))
-
-    responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
-    if responce.startswith(DISCONNECT): 
-        print(responce[len(DISCONNECT):])
-        return
-
-    ROOM = responce
-    print(ROOM)
-    start()
-
-def join(b):
-    global menu, ROOM
-    if not connectClient():
-        return
-
-    roomName = "07db65ad1047e342" # max 8 chrs long
-    client.send(f"j{roomName}".encode(FORMAT))
-
-    responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
-    if responce.startswith(DISCONNECT): 
-        print(responce[len(DISCONNECT):])
-        return
-
-    ROOM = responce
-    start()
-    
-
-menuColor = (145, 149, 156)
-joinOtherButton = Button("joinOtherButton", Vector2((mapSize*GRIDSIZE)+5, 100), Vector2(20, 8), "JOIN", font=pygame.font.Font(None, 52), 
-                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=join)
-createButton = Button("createButton", Vector2((mapSize*GRIDSIZE)+5, 250), Vector2(20, 8), "create", font=pygame.font.Font(None, 52), 
-                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=create)
-
-quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, 400), Vector2(20, 8), "QUIT", font=pygame.font.Font(None, 52),
-                    normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
-
-def menuLoop():
-    global menuColor, createButton, quitButton, isRunning, canEdit, menu, startButton, youShipsText, otherShipsText
-    if menu:
-        createButton.SetActive(True)
-        joinOtherButton.SetActive(True)
-        quitButton.SetActive(True)
-
-        startButton.SetActive(False)
-        youShipsText.SetActive(False)
-        otherShipsText.SetActive(False)
-    else:
-        createButton.SetActive(False)
-        joinOtherButton.SetActive(False)
-        quitButton.SetActive(False)
-
-
-    while menu:
-        for event in pygame.event.get():
-            GameObject.HandleEventsAll(event)
-
-            if event.type == pygame.QUIT:
-                isRunning = False
-                canEdit = False
-                menu = False
-
-
-        screen.fill(menuColor)
-
-        GameObject.DrawAll(screen)
-        GameObject.UpdateAll()
-
-        pygame.display.update()
 
 class Boat():
     def __init__(self, position: Vector2, dimensions: Vector2):
@@ -284,18 +192,149 @@ class Boat():
                 square = min(int(pY/GRIDSIZE) * mapSize + int(pX/GRIDSIZE), mapSize**2-1)
                 grid[square] = 1
 
+
+errorMsg = ErrorText()
+
 boats: List[Boat] = []
 if canEdit:
-    # instantiation of the boats
-
     Boat(Vector2(40, 40), Vector2(1, 1))
-    #Boat(Vector2(180, 60), Vector2(2, 1))
-
+    
     for boat in boats:
         boat.addToGrid()
 
 
+
+# region main menu
+
+def quit(b):
+    global isRunning, canEdit, menu
+    isRunning = False
+    canEdit = False
+    menu = False
+
+def connectClient():
+    try:
+        client.connect(ADDR)
+        return True
+        
+    except ConnectionRefusedError:
+        print(f"Connection actively refused by host @ {HOST}!")
+        errorMsg.loadError(f"Connection actively refused by host @ {HOST}!")
+        return False
+
+    except OSError:
+        return True
+
+def start():
+    global menu
+    menu = False
+    createButton.SetActive(False)
+    quitButton.SetActive(False)
+    joinOtherButton.SetActive(False)
+
+    startButton.SetActive(True)
+    youShipsText.SetActive(True)
+    otherShipsText.SetActive(True)
+
+
+def create(b):
+    global menu, ROOM
+    if not connectClient():
+        return
+
+    roomName = "room" # max 8 chrs long
+    client.send(f"c{roomName}".encode(FORMAT))
+
+    responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
+    if responce.startswith(DISCONNECT): 
+        print(responce[len(DISCONNECT):])
+        return
+
+    ROOM = responce
+    print("Created Room: ", ROOM)
+    start()
+
+def join(b):
+    global menu, ROOM
+    if not connectClient():
+        # error message handled in the function
+        return
+
+    if len(roomInputField.text) < 16:
+        errorMsg.loadError("Invite Link has to be 16 chrs long")
+        return
+
+    #     07db65ad1047e342
+    roomName = roomInputField.text # 16 chrs
+    client.send(f"j{roomName}".encode(FORMAT))
+
+    responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
+    if responce.startswith(DISCONNECT): 
+        print(responce[len(DISCONNECT):])
+        errorMsg.loadError(responce[len(DISCONNECT):] + f" (Room Name: {chr(32)} {roomName})")
+        return
+
+    ROOM = responce
+    start()
+
+def test(text: str):
+    print(text)
+    
+
+menuColor = (145, 149, 156)
+joinOtherButton = Button("joinOtherButton", Vector2((mapSize*GRIDSIZE)+5, 100), Vector2(20, 8), "JOIN", font=pygame.font.Font(None, 52), 
+                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=join)
+createButton = Button("createButton", Vector2((mapSize*GRIDSIZE)+5, 250), Vector2(20, 8), "CREATE", font=pygame.font.Font(None, 52), 
+                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=create)
+
+quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, 400), Vector2(20, 8), "QUIT", font=pygame.font.Font(None, 52),
+                    normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
+
+roomInputField = InputField("asdsad", Vector2((mapSize*GRIDSIZE)+5, 560), scale=Vector2(10, 3.5), onEndEdit=test)
+
+def menuLoop():
+    global menuColor, createButton, quitButton, isRunning, canEdit, menu, startButton, youShipsText, otherShipsText
+    if menu:
+        createButton.SetActive(True)
+        joinOtherButton.SetActive(True)
+        quitButton.SetActive(True)
+
+        startButton.SetActive(False)
+        youShipsText.SetActive(False)
+        otherShipsText.SetActive(False)
+    else:
+        createButton.SetActive(False)
+        joinOtherButton.SetActive(False)
+        quitButton.SetActive(False)
+
+
+    while menu:
+        clock.tick(60)
+        for event in pygame.event.get():
+            if not errorMsg.toggled:
+                GameObject.HandleEventsAll(event)
+
+            if event.type == pygame.QUIT:
+                isRunning = False
+                canEdit = False
+                menu = False
+
+        screen.fill(menuColor)
+
+        GameObject.DrawAll(screen)
+
+        GameObject.UpdateAll()
+
+        pygame.display.update()
+
+# endregion
+
+
+
+# region edit the boat loadout
+
 def draw():
+    #! improve this function
     for y in range(mapSize):
         for x in range(mapSize):
             square = y * mapSize + x
@@ -311,11 +350,8 @@ def draw():
             elif(grid[square] == 3):
                 pygame.draw.rect(screen, MISS, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
-    for y in range(mapSize):
-        for x in range(mapSize):
-            square = y * mapSize + x
 
-            # empty slot
+            # other grid
             if(otherGrid[square] == 0):
                 pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(otherGrid[square] == 2):
@@ -323,11 +359,12 @@ def draw():
             elif(otherGrid[square] == 3):
                 pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
+            
+
     
     pygame.draw.rect(screen, (145, 149, 156), (0, mapSize*GRIDSIZE, width, 100))
 
-    GameObject.DrawAll(screen) # UI
-    
+    GameObject.DrawAll(screen)
 
     if canEdit:
         for boat in boats:
@@ -343,11 +380,11 @@ def startGame(b: Button):
             boat.addToGrid()
 
         x = [str(int) for int in grid]
+        #x = list(map(str, grid))
         msg = ",".join(x)
         client.send(msg.encode(FORMAT))
         startButton.SetActive(False)
         canEdit = False
-
 
         recvThread = Thread(target=recv)
         recvThread.start()
@@ -369,6 +406,8 @@ def editBoats():
     global isRunning, grid, canEdit, selectedIndex, boats, joinButton
 
     while canEdit:
+        clock.tick(60)
+        
         for event in pygame.event.get():
             GameObject.HandleEventsAll(event)
 
@@ -415,6 +454,12 @@ def editBoats():
         pygame.display.update()
 
 
+
+# endregion
+
+
+# region main game loop (communitcation with server)
+
 received = ""
 
 def starPattern(lel: list, s: int, kenek: list = None):
@@ -456,8 +501,14 @@ def resetToMenu():
     sleep(0.1)
 
 def recv():
-    global received, isTurn, isFinished, isRunning, menu, canEdit, youShipsText, otherShipsText, grid, otherGrid
-    startMsg = client.recv(2).decode(FORMAT)
+    global received, isTurn, isFinished, isRunning, grid, otherGrid
+    startMsg = ""
+    while True:
+        startMsg = client.recv(2).decode(FORMAT)
+
+        if not startMsg.startswith(specialMessages["connection test"]):
+            break
+
     isTurn = bool(int(startMsg[1]))
     print(f"start message recved! my turn: {isTurn}!")
 
@@ -515,6 +566,7 @@ def recv():
 
 # actual attacking draw your attacks
 while isRunning:
+    clock.tick(60)
 
     menuLoop()
 
@@ -535,7 +587,9 @@ while isRunning:
             if(event.pos[0] < screenOffset.x): continue
 
             # on the right side
-            square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
+            #square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
+            square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-(mapSize*GRIDSIZE), 0)/GRIDSIZE), 99), 0)
+            print("Pressed: ", square)
             #square = min(square, mapSize**2-1)
 
             if otherGrid[square] == 2 or otherGrid[square] == 3: continue # not click on hit positions
@@ -555,7 +609,11 @@ while isRunning:
 
     pygame.display.update()
 
+# endregion
+
 
 sleep(0.2)
 pygame.quit()
+
+from sys import exit
 exit()
