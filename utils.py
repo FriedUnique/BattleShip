@@ -7,6 +7,16 @@ import pygame
 gridSize = 60
 mapSize = 8
 
+DISCONNECT = "!dDd"
+SURRENDER = "!gGg"
+CONN_TEST = "#"
+
+specialMessages = {
+    "disconnect": DISCONNECT,
+    "surrender": SURRENDER,
+    "connection test": CONN_TEST
+}
+
 pygame.init()
 FONT = pygame.font.Font(None, 32)
 
@@ -85,12 +95,16 @@ class Vector2:
         return math.acos(Vector2.Dot(vec1, vec2))
 
 class GameObject:
-    def __init__(self, name, goSprite, position: Vector2, scale = Vector2(1, 1)):
+    def __init__(self, name, goSprite, position: Vector2 = (10, 10), scale = Vector2(1, 1)):
         self.name = self.nameing(name)
         self.sprite = goSprite
-        self.position = position
-        self.scale = scale
-        self.rect = self.sprite.get_rect(center=(position.x, position.y)) #topleft
+        self.position: Vector2 = position
+        self.scale: Vector2 = scale
+
+        if self.sprite != None:
+            self.rect = self.sprite.get_rect(center=(position.x, position.y)) #topleft
+        else:
+            self.rect = pygame.Rect(self.position.x, self.position.y, self.scale.x, self.scale.y)
 
         self.isActive = True
 
@@ -169,7 +183,7 @@ class GameObject:
             go.draw(s)
 
 class Text(GameObject):
-    def __init__(self, name="TextField", position = Vector2(0, 0), text = "", color = (255, 255, 255), font = pygame.font.Font(None, 32)):
+    def __init__(self, name="TextField", position = Vector2(0, 0), color = (255, 255, 255), font = pygame.font.Font(None, 32), text = ""):
         self.text = text
         self.color = color
         self.font = font
@@ -230,6 +244,7 @@ class Button(GameObject):
         
         #customization
         self.text = text
+        #? make a dictionary for these values (or list)
         self.normalBackground = normalBackground
         self.onHoverBackground = onHoverBackground
         self.onPressedBackground = onPressedBackground
