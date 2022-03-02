@@ -1,28 +1,26 @@
-from math import floor
+from math import floor, ceil
 import pygame
 from utils import Button, GameObject, InputField, Text, Vector2, specialMessages
 from typing import List
+import json
 
 import socket
 from time import sleep
 from threading import Thread
 
-#import json
+
+saveData: dict = {}
+with open('data.json') as data_file:
+    saveData = json.load(data_file)
+
 
 """
-TODO: Main Menu Screen in beginning
-TODO: Close gameloop -> when game finished go to main menu
-TODO: If hit maybe let the striker shoot again.
-TODO: Custom username
+TODO: When error screen pops up cpu usage spikes to 1%
 
-TODO: Join and Create Rooms for friends to join
-    - Join Room with a hashed string
-    - Create Room with a name, which will be hashed
-
-TODO: Game testing
-TODO: Room renameing when room name already exists
+TODO: Display whos turn it is. (username info is given by server)
 
 """
+
 
 pygame.init()
 
@@ -35,6 +33,7 @@ screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
 
 width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
 screen = pygame.display.set_mode((width, height))
+pygame.display.set_caption("Battle Ship Game.")
 clock = pygame.time.Clock()
 
 alphaSurface = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -45,12 +44,23 @@ BOAT = (79, 78, 77) # 1
 HIT = (217, 84, 54) # 2
 MISS = (114, 129, 140) # 3
 
+BLACK = (0, 0, 0)
+menuColor = (145, 149, 156)
+
+fontSize = 38 - ceil(700/height)*2
+
+
 # networking
 FORMAT = 'utf-8'
 HOST = '127.0.0.1'
 PORT = 5050
 ADDR = (HOST, PORT)
-ROOM = None
+
+ROOM_LINK = saveData["inviteLink"]
+ROOM_NAME = saveData["roomName"]
+USER = saveData["playerName"]
+
+pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {USER}")
 
 DISCONNECT = specialMessages["disconnect"]
 SURRENDER = specialMessages["surrender"]
@@ -61,6 +71,23 @@ def blancMap():
         for x in range(mapSize):
             _g.append(0)
     return _g
+
+def save():
+    global ROOM_LINK, ROOM_NAME, USER
+    if joinMethod == "j":
+        saveData["inviteLink"] = roomInputField.text
+        ROOM_LINK = saveData["inviteLink"]
+    elif joinMethod == "c":
+        saveData["roomName"] = roomInputField.text
+        ROOM_NAME = saveData["roomName"]
+    
+
+    saveData["playerName"] = usernameInputField.text
+    USER = saveData["playerName"]
+
+    with open('data.json', 'w') as outfile:
+        json.dump(saveData, outfile)
+
 
 grid = blancMap()
 otherGrid = blancMap()
@@ -73,7 +100,7 @@ menu = True
 
 selectedIndex: int = None # index can be 0, has to do with the boat-dragging mechanic
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
+joinMethod = ""
 
 # endregion
 
@@ -203,14 +230,16 @@ if canEdit:
         boat.addToGrid()
 
 
-
 # region main menu
 
 def quit(b):
     global isRunning, canEdit, menu
+    save()
+
     isRunning = False
     canEdit = False
     menu = False
+    
 
 def connectClient():
     try:
@@ -226,71 +255,118 @@ def connectClient():
         return True
 
 def start():
-    global menu
+    global menu, roomInputField, usernameInputField
     menu = False
     createButton.SetActive(False)
     quitButton.SetActive(False)
     joinOtherButton.SetActive(False)
+    roomInputField.SetActive(False)
+    usernameInputField.SetActive(False)
+    backToMenu.SetActive(False)
+    roomIFDesc.SetActive(False)
+    userIFDesc.SetActive(False)
 
     startButton.SetActive(True)
     youShipsText.SetActive(True)
     otherShipsText.SetActive(True)
 
+    save()
 
-def create(b):
-    global menu, ROOM
+def enterNames(active: bool):
+    createButton.SetActive(not active)
+    quitButton.SetActive(not active)
+    joinOtherButton.SetActive(not active)
+
+    if joinMethod == "j":
+        roomInputField.text = saveData["inviteLink"]
+    elif joinMethod == "c":
+        roomInputField.text = saveData["roomName"]
+
+    roomInputField.SetActive(active)
+    usernameInputField.SetActive(active)
+    continueButton.SetActive(active)
+    backToMenu.SetActive(active)
+    roomIFDesc.SetActive(active)
+    userIFDesc.SetActive(active)
+
+
+
+def connectToGame(b: Button):
+    global ROOM_LINK, USER, ROOM_NAME
+    print("pressed")
     if not connectClient():
         return
 
-    roomName = "room" # max 8 chrs long
-    client.send(f"c{roomName}".encode(FORMAT))
+    room = roomInputField.text # name or inviteLink
+    userName = usernameInputField.text
 
-    responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
-    if responce.startswith(DISCONNECT): 
-        print(responce[len(DISCONNECT):])
-        return
-
-    ROOM = responce
-    print("Created Room: ", ROOM)
-    start()
-
-def join(b):
-    global menu, ROOM
-    if not connectClient():
-        # error message handled in the function
-        return
-
-    if len(roomInputField.text) < 16:
+    if joinMethod == "j" and len(roomInputField.text) < 16:
         errorMsg.loadError("Invite Link has to be 16 chrs long")
         return
+    elif joinMethod == "c":
+        ROOM_NAME = room
 
-    #     07db65ad1047e342
-    roomName = roomInputField.text # 16 chrs
-    client.send(f"j{roomName}".encode(FORMAT))
+    client.send(f"{joinMethod}{room},{userName}".encode(FORMAT))
 
     responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
     if responce.startswith(DISCONNECT): 
         print(responce[len(DISCONNECT):])
-        errorMsg.loadError(responce[len(DISCONNECT):] + f" (Room Name: {chr(32)} {roomName})")
         return
 
-    ROOM = responce
+    ROOM_LINK = responce[0:16]
+    USER = responce[16:]
+
+    save()
+
+    b.SetActive(False)
+    print("Room Name: ", ROOM_LINK)
     start()
 
-def test(text: str):
-    print(text)
-    
+def create(b):
+    global joinMethod
+    joinMethod = "c"
+    enterNames(True)
 
-menuColor = (145, 149, 156)
-joinOtherButton = Button("joinOtherButton", Vector2((mapSize*GRIDSIZE)+5, 100), Vector2(20, 8), "JOIN", font=pygame.font.Font(None, 52), 
+
+def join(b):
+    global joinMethod
+    joinMethod = "j"
+    enterNames(True)
+
+def back(b):    
+    save()
+    enterNames(False)
+    
+# region UI setup
+
+textFont = pygame.font.Font(None, fontSize)
+buttonFont = pygame.font.Font(None, fontSize+15)
+
+joinOtherButton = Button("joinOtherButton", Vector2((mapSize*GRIDSIZE)+5, height/6), Vector2(20, 8), "JOIN", font=buttonFont, 
                 normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=join)
-createButton = Button("createButton", Vector2((mapSize*GRIDSIZE)+5, 250), Vector2(20, 8), "CREATE", font=pygame.font.Font(None, 52), 
+
+createButton = Button("createButton", Vector2((mapSize*GRIDSIZE)+5, height/6*3), Vector2(20, 8), "CREATE", font=buttonFont, 
                 normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=create)
 
-quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, 400), Vector2(20, 8), "QUIT", font=pygame.font.Font(None, 52),
+quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, height/6*5), Vector2(20, 8), "QUIT", font=buttonFont,
                     normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
 
-roomInputField = InputField("asdsad", Vector2((mapSize*GRIDSIZE)+5, 560), scale=Vector2(10, 3.5), onEndEdit=test)
+roomInputField = InputField("roomIF", Vector2((mapSize*GRIDSIZE)+5, height/10*6), scale=Vector2(10, 3.5), maxChrs=16 , active=False, font=textFont, text=saveData["roomName"])
+
+usernameInputField = InputField("nameIF", Vector2((mapSize*GRIDSIZE)+5, height/10*8), scale=Vector2(10, 3.5), maxChrs=8, active=False, font=textFont, text=saveData["playerName"],
+                        onEndEdit = lambda userNameEntered: pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {userNameEntered}")) #460 ,560
+
+roomIFDesc = Text("roomIFDesc", Vector2((mapSize*GRIDSIZE)-200, height/10*6-20), BLACK, text="ROOM NAME", active=False, font=textFont)
+userIFDesc = Text("userIFDesc", Vector2((mapSize*GRIDSIZE)-200, height/10*8-20), BLACK, text="USER NAME", active=False, font=textFont)
+
+
+continueButton = Button("continue", Vector2(width-100, height-50), Vector2(18, 8), "continue", font=buttonFont,
+                    normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=connectToGame, active=False)
+
+backToMenu = Button("back", Vector2(80, height-50), Vector2(15, 8), "back", font=buttonFont,
+                    normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=back, active=False)
+
+# endregion
 
 def menuLoop():
     global menuColor, createButton, quitButton, isRunning, canEdit, menu, startButton, youShipsText, otherShipsText
@@ -344,7 +420,7 @@ def draw():
                 pygame.draw.rect(screen, EMPTY, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(grid[square] == 1):
                 #? boat is drawn two times, here and in down in the dedicated for loop
-                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 4, GRIDSIZE - 4))
+                pygame.draw.rect(screen, BOAT, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(grid[square] == 2):
                 pygame.draw.rect(screen, HIT, (x * GRIDSIZE, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
             elif(grid[square] == 3):
@@ -513,7 +589,7 @@ def recv():
     print(f"start message recved! my turn: {isTurn}!")
 
     while isRunning:
-        received = client.recv(8).decode(FORMAT)
+        received = client.recv(8+8).decode(FORMAT) # max user name lenght
         if len(received) < 3:
             continue
 
@@ -535,6 +611,7 @@ def recv():
             continue
         
         # end of game, win/loose
+        #! 2 = end of game
         # 2{playerIndex}{bool: didWin}
         if int(received[0]) > 1:
             # ! game loop
@@ -554,10 +631,13 @@ def recv():
         if isTurn == 0:
             # this is called right after your turn
             #? check around the hit point and mark the other spots, like in the browser game
-            otherStarSquares = received[4:]
+            otherStarSquares = received[4:8]
             otherGrid[square] = 2 if isHit == True else 3
             if isHit:
                 starPattern(otherGrid, square, list(otherStarSquares))
+
+            print(received[8:])
+
         else:
             grid[square] = 2 if isHit == True else 3
             if isHit:
@@ -611,8 +691,9 @@ while isRunning:
 
 # endregion
 
-
+save()
 sleep(0.2)
+
 pygame.quit()
 
 from sys import exit

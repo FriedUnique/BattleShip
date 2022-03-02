@@ -16,6 +16,7 @@ CONN_TEST = "#"
 COLOR_INACTIVE = (100, 116, 125)
 COLOR_ACTIVE = (0, 0, 0)
 
+
 def COPY(event):
     return event.key == pygame.K_c and pygame.key.get_mods() & pygame.KMOD_CTRL
 
@@ -31,6 +32,9 @@ specialMessages = {
     "surrender": SURRENDER,
     "connection test": CONN_TEST
 }
+
+
+
 
 pygame.init()
 FONT = pygame.font.Font(None, 32)
@@ -110,7 +114,7 @@ class Vector2:
         return math.acos(Vector2.Dot(vec1, vec2))
 
 class GameObject:
-    def __init__(self, name, goSprite, position: Vector2 = (10, 10), scale = Vector2(1, 1)):
+    def __init__(self, name, goSprite, position: Vector2 = (10, 10), scale = Vector2(1, 1), active = True):
         self.name = self.nameing(name)
         self.sprite = goSprite
         self.position: Vector2 = position
@@ -121,7 +125,7 @@ class GameObject:
         else:
             self.rect = pygame.Rect(self.position.x, self.position.y, self.scale.x, self.scale.y)
 
-        self.isActive = True
+        self.isActive = active
 
     def nameing(self, targetName) -> str:
         allVals = list(allGOs.keys())
@@ -193,14 +197,14 @@ class GameObject:
             go.draw(s)
 
 class Text(GameObject):
-    def __init__(self, name="TextField", position = Vector2(0, 0), color = (255, 255, 255), font = pygame.font.Font(None, 32), text = ""):
+    def __init__(self, name="TextField", position = Vector2(0, 0), color = (255, 255, 255), font = pygame.font.Font(None, 32), text = "", active=True):
         self.text = text
         self.color = color
         self.font = font
 
         txt_surface = font.render(self.text, True, self.color) #change
 
-        super().__init__(name, txt_surface, position)
+        super().__init__(name, txt_surface, position, active=active)
 
     def draw(self, surface):
         surface.blit(self.sprite, self.rect) #blit a image
@@ -240,7 +244,7 @@ class Button(GameObject):
     def __init__(self, name = "Button", position = Vector2(0, 0), scale = Vector2(1, 1), 
             text = "Button", textColor = (0, 0, 0), font = pygame.font.Font(None, 32), textAlignment = TextAlignement.CenterMiddle, 
             normalBackground = (255, 255, 255), onHoverBackground = (220, 230, 235), onPressedBackground = (220, 230, 235), 
-            onClicked = lambda x: x, onHover = lambda y: y):
+            onClicked = lambda x: x, onHover = lambda y: y, active=True):
 
         position = Vector2(position.x - int(10*scale.x/2), position.y - int(10*scale.y/2))
 
@@ -260,7 +264,7 @@ class Button(GameObject):
         self.onHoverBackground = onHoverBackground
         self.onPressedBackground = onPressedBackground
 
-        super().__init__(name, self.txt_surface, position, scale)
+        super().__init__(name, self.txt_surface, position, scale, active=active)
 
         # event
         self.onClickEventListeners = list()
@@ -369,16 +373,16 @@ class InputField(GameObject):
     class InputFieldEvents(Enum):
         OnEndEdit = 1
     
-    def __init__(self, name = "InputField", position = Vector2(0, 0), scale = Vector2(1, 1), text: str = '', onEndEdit=lambda x: x, maxChrs: int = 16):
+    def __init__(self, name = "InputField", position = Vector2(0, 0), scale = Vector2(1, 1), text: str = '', onEndEdit=lambda x: x, maxChrs: int = 16, active=True, font=FONT):
         self.color = COLOR_INACTIVE
         self.text = text
         self.textSize = 32
         self.selected = False
         self.maxChrs = maxChrs
 
-        super().__init__(name, FONT.render(text, True, self.color), position, scale)
+        super().__init__(name, font.render(text, True, self.color), position, scale, active=active)
 
-        self.rect = pygame.Rect(position.x, position.y, 10*scale.x, 10*scale.y)
+        self.rect = pygame.Rect(position.x-10*scale.x, position.y-10*scale.y, 10*scale.x, 10*scale.y)
 
         self.onEndEditListeners = list()
         self.AddEventListener(self.InputFieldEvents.OnEndEdit, onEndEdit)
@@ -392,7 +396,10 @@ class InputField(GameObject):
             if self.rect.collidepoint(pygame.mouse.get_pos()):
                 self.selected = not self.selected
             else:
+                for listener in self.onEndEditListeners:
+                        listener(self.text)
                 self.selected = False
+                
             self.color = COLOR_ACTIVE if self.selected else COLOR_INACTIVE
         if event.type == pygame.KEYDOWN:
             if self.selected:

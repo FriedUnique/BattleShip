@@ -7,7 +7,7 @@ from utils import CONN_TEST, specialMessages
 
 import hashlib
 
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
+HOST = '127.0.0.1'  # (localhost)
 PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
 FORMAT = 'utf-8'
 
@@ -29,14 +29,21 @@ class Room:
         self.count = 0
 
         self.connections = []
+        self.userNames = {}
 
-        self.ready = -2 # if 0 then game starts
+        self.ready = -2 # if 0 then game starts, when player ready message, ready is incremented
         self.isFinished = False
 
         rooms.append(self)
 
-    def addPlayer(self, newConn):
+    def checkNameOfPlayer(self, name: str):
+        if name in list(self.userNames.values()):
+            return name + "1"
+        return name
+
+    def addPlayer(self, newConn, userName):
         self.connections.append(newConn)
+        self.userNames[newConn] = userName
         self.count += 1
 
     def removePlayer(self, conn):
@@ -44,6 +51,7 @@ class Room:
         if conn not in self.connections: return
 
         self.connections.remove(conn)
+        del self.userNames[conn]
         self.count -= 1
 
         if self.count <= 0:
@@ -75,7 +83,7 @@ def starPattern(lel: list, s: int):
     return [str(lel[l]), str(lel[r]), str(lel[u]), str(lel[d])] # 4
 
 
-def testConnection(conn) -> bool:
+def testConnection(conn):
     try:
         conn.send(CONN_TEST.encode(FORMAT))
     except:
@@ -91,15 +99,15 @@ def handle_player(conn, addr, room: Room):
     # when the start (ready) button is pressed, then it sends the grid.
     grid = conn.recv(2048).decode(FORMAT)
     grid = grid.split(",")
-    # convert from List[str] to List [int]
     if len(grid) <= 3:
+        print(grid)
         room.removePlayer(conn)
         conn.close()
         print("client closed")
         connected = False
         return
 
-    # map(int, grid)
+    # convert from List[str] to List [int]
     for i in range(0, len(grid)):
         grid[i] = int(grid[i])
 
@@ -121,68 +129,73 @@ def handle_player(conn, addr, room: Room):
     # send a start message to all players. the player with the bool isTurn variable will start 
 
     #print(room.connections.index(conn))
+    # start message, it determines who starts (second paramter)
     conn.send(f"1{room.connections.index(conn)}".encode(FORMAT))
 
-    while connected:
+    while connected and room.isFinished == False:
         # position of mouse point in grid space
-        recvMessage = conn.recv(2).decode(FORMAT)
-        
-        if(recvMessage == DISCONNECT):
-            room.connections.pop(conn)
-            connected = False
-            # send to the other a force quit message
-            break
-        elif recvMessage == SURRENDER:
-            conn.send(SURRENDER.encode(FORMAT))
-            other.send(f"2{room.connections.index(conn)}1".encode(FORMAT))
-            continue
-        elif not testConnection(conn):
-            print('bad or interrupted connection. closeing game')
-            other.send(f"2{room.connections.index(conn)}1".encode(FORMAT)) # other wins because client to stupid to by connection
-            break
-
-
-        square = int(recvMessage[:2])
-        
-        if other == None:
-            x = list(room.connections)
-            x.remove(conn)
+        try:
+            recvMessage = conn.recv(2).decode(FORMAT)
             
-            other = x[0]
-        if otherGrid == None:
-            g = list(grids)
-            g.remove(grid)
-            otherGrid = list(map(int, g[0]))
-
-        # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
-
-        isHit = False
-        otherSquares = ["0", "0", "0", "0"] # change the standart values
-        square = min(square, mapSize**2-1)
-
-        if otherGrid[square] == 1:
-            isHit = True
-            otherGrid[square] = 2
-
-            otherSquares = starPattern(otherGrid, square) # returns the value of the other squares
+            if(recvMessage == DISCONNECT):
+                room.connections.pop(conn)
+                connected = False
+                # send to the other a force quit message
+                break
+            elif recvMessage == SURRENDER:
+                conn.send(SURRENDER.encode(FORMAT))
+                other.send(f"2{room.connections.index(conn)}1".encode(FORMAT))
+                continue
+            elif not testConnection(conn):
+                print('bad or interrupted connection. closeing game')
+                other.send(f"2{room.connections.index(conn)}1".encode(FORMAT)) # other wins because client to stupid to by connection
+                break
 
 
-        square = "%02d" % (square,) # convert to a 2 digit format
+            square = int(recvMessage[:2])
+            
+            if other == None:
+                x = list(room.connections)
+                x.remove(conn)
+                
+                other = x[0]
+            if otherGrid == None:
+                g = list(grids)
+                g.remove(grid)
+                otherGrid = list(map(int, g[0]))
 
-        #print(f"Player: {list(connections).index(conn)} >>  1{square}{isHit}")
-        #{isTurn}{attackedSquare}{isHit}
-        other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
+            # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
 
-        # {isTurn}{attackedSquare}{isHit}{l,r,u,d}
-        conn.send(f"0{square}{int(isHit)}{''.join(otherSquares)}".encode(FORMAT)) #8
+            isHit = False
+            otherSquares = ["0", "0", "0", "0"] # change the standart values
+            square = min(square, mapSize**2-1)
 
-        # win condition
-        if 1 not in otherGrid:
-            # win
-            other.send(f"2{room.connections.index(conn)}0".encode(FORMAT))  # other looses
-            conn.send(f"2{room.connections.index(conn)}1".encode(FORMAT))   # you win
-            room.isFinished = True
-            break
+            if otherGrid[square] == 1:
+                isHit = True
+                otherGrid[square] = 2
+
+                otherSquares = starPattern(otherGrid, square) # returns the value of the other squares
+
+
+            square = "%02d" % (square,) # convert to a 2 digit format
+
+            #print(f"Player: {list(connections).index(conn)} >>  1{square}{isHit}")
+            #{isTurn}{attackedSquare}{isHit}
+            other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
+
+            # {isTurn}{attackedSquare}{isHit}{l,r,u,d}
+            # after you attacked, attack responce
+            conn.send(f"0{square}{int(isHit)}{''.join(otherSquares)}{room.userNames[other]}".encode(FORMAT)) #8+len(userName)
+
+            # win condition
+            if 1 not in otherGrid:
+                # win
+                other.send(f"2{room.connections.index(conn)}0".encode(FORMAT))  # other looses
+                conn.send(f"2{room.connections.index(conn)}1".encode(FORMAT))   # you win
+                room.isFinished = True
+                break
+        except Exception as e:
+            print(e)
 
     room.removePlayer(conn)
     conn.close()
@@ -205,17 +218,20 @@ def start():
     while True:
         conn, addr = server.accept()
 
-        initMessage = conn.recv(20).decode(FORMAT) # buffer 17 when creating room and 17 when joining with hash
+        initMessage = conn.recv(26).decode(FORMAT) # {joinMethod}{roomName},{userName} DONT FORGET TO COUNT THE COMMA
         joinMethod = initMessage[0].lower()
-        roomName = initMessage[1:].lower()
+
+        roomName = initMessage[1:].split(",")[0].lower()
+        userName = initMessage[1:].split(",")[1]
 
         # create room
         if joinMethod == "c":
             room = Room(roomName)
-            room.addPlayer(conn)
+            room.addPlayer(conn, userName)
 
             sleep(0.1)
-            conn.send(f"{room.name}".encode(FORMAT))
+            # responce
+            conn.send(f"{room.name}{userName}".encode(FORMAT))
 
         # join existing room
         elif joinMethod == "j":
@@ -226,10 +242,18 @@ def start():
                 conn.close()
                 continue
 
-            room.addPlayer(conn)
+            if room.count == 2:
+                conn.send(f"{DISCONNECT}Room Is Full".encode(FORMAT))
+                conn.close()
+                continue
+                
+            #userName = room.checkNameOfPlayer(userName)
+            room.addPlayer(conn, userName)
             print(room.connections)
             sleep(0.1)
-            conn.send(f"{room.name}".encode(FORMAT))
+
+            # responce
+            conn.send(f"{room.name}{userName}".encode(FORMAT))
 
         else:
             conn.close()
