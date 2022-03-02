@@ -28,7 +28,7 @@ pygame.init()
 
 # map stuff
 mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
-GRIDSIZE = 60 # 8x8
+GRIDSIZE = 40 # 8x8
 screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
 
 width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
@@ -579,14 +579,24 @@ def resetToMenu():
 def recv():
     global received, isTurn, isFinished, isRunning, grid, otherGrid
     startMsg = ""
-    while True:
-        startMsg = client.recv(2).decode(FORMAT)
+    while isRunning:
+        startMsg = client.recv(4).decode(FORMAT)
+
+        if startMsg == DISCONNECT:
+            isRunning = False
+            isTurn = False
+            isFinished = False
+            print("Force close!")
+            # go to main menu
+            break
 
         if not startMsg.startswith(specialMessages["connection test"]):
             break
 
-    isTurn = bool(int(startMsg[1]))
-    print(f"start message recved! my turn: {isTurn}!")
+
+    if isRunning:
+        isTurn = bool(int(startMsg[1]))
+        print(f"start message recved! my turn: {isTurn}!")
 
     while isRunning:
         received = client.recv(8+8).decode(FORMAT) # max user name lenght

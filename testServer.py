@@ -130,7 +130,8 @@ def handle_player(conn, addr, room: Room):
 
     #print(room.connections.index(conn))
     # start message, it determines who starts (second paramter)
-    conn.send(f"1{room.connections.index(conn)}".encode(FORMAT))
+    if connected:
+        conn.send(f"1{room.connections.index(conn)}".encode(FORMAT))
 
     while connected and room.isFinished == False:
         # position of mouse point in grid space
