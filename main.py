@@ -8,6 +8,8 @@ import socket
 from time import sleep
 from threading import Thread
 
+import cProfile
+
 
 saveData: dict = {}
 with open('data.json') as data_file:
@@ -36,7 +38,7 @@ screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Battle Ship Game.")
 clock = pygame.time.Clock()
 
-alphaSurface = pygame.Surface((width, height), pygame.SRCALPHA)
+#alphaSurface = pygame.Surface((width, height), pygame.SRCALPHA)
 
 # colors
 EMPTY = (160, 193, 217) # 0
@@ -74,6 +76,7 @@ def blancMap():
 
 def save():
     global ROOM_LINK, ROOM_NAME, USER
+    
     if joinMethod == "j":
         saveData["inviteLink"] = roomInputField.text
         ROOM_LINK = saveData["inviteLink"]
@@ -107,7 +110,7 @@ joinMethod = ""
 
 errorAlpha = 80
 errorTextColor = (186, 34, 36)
-errorBackground = (100, 245, 67, errorAlpha)
+errorBackground = (100, 245, 67)
 
 class ErrorText(GameObject):
     def __init__(self):
@@ -126,10 +129,10 @@ class ErrorText(GameObject):
 
     def update(self, _t):
         if(self.toggled):
-            pygame.draw.rect(alphaSurface, errorBackground, (0, 0, width, height))
-            self.text.draw(alphaSurface)
-            self.closeButton.draw(alphaSurface)
-            screen.blit(alphaSurface, alphaSurface.get_rect())
+            # removed the transparent back
+            pygame.draw.rect(screen, errorBackground, (0, 0, width, height))
+            self.text.draw(screen)
+            self.closeButton.draw(screen)
 
             #! important ! if error screen is up, it stops the user from clicking on stuff, including the close button
             self.closeButton.handleEvents(None) # button doesn't use the event anyway
@@ -406,7 +409,6 @@ def menuLoop():
 # endregion
 
 
-
 # region edit the boat loadout
 
 def draw():
@@ -658,7 +660,7 @@ def recv():
 while isRunning:
     clock.tick(60)
 
-    menuLoop()
+    cProfile.run('menuLoop()')
 
     editBoats()
 
