@@ -1,3 +1,4 @@
+from cgi import test
 import socket
 from threading import Thread
 from time import sleep
@@ -6,6 +7,7 @@ from typing import List
 from utils import CONN_TEST, specialMessages
 
 import hashlib
+import sys
 
 HOST = '127.0.0.1'  # (localhost)
 PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
@@ -48,7 +50,9 @@ class Room:
 
     def removePlayer(self, conn):
         #! if player is owner kick other player
-        if conn not in self.connections: return
+        if conn not in self.connections:
+            print("errororooooooooo")
+            return
 
         self.connections.remove(conn)
         del self.userNames[conn]
@@ -121,60 +125,63 @@ def handle_player(conn, addr, room: Room):
         if not testConnection(conn):
             connected = False
             break
-
-    print(room.connections)
-
     
     # wait until there are two players
     # send a start message to all players. the player with the bool isTurn variable will start 
 
     #print(room.connections.index(conn))
     # start message, it determines who starts (second paramter)
+
     if connected:
-        conn.send(f"1{room.connections.index(conn)}".encode(FORMAT))
+        if other == None:
+            x = list(room.connections)
+            x.remove(conn)
+            other = x[0]
+
+        if otherGrid == None:
+            g = list(grids)
+            g.remove(grid)
+            otherGrid = list(map(int, g[0]))
+            
+        conn.send(f"1{room.connections.index(conn)}{room.userNames[other]}".encode(FORMAT))
 
     while connected and room.isFinished == False:
         # position of mouse point in grid space
         try:
-            recvMessage = conn.recv(2).decode(FORMAT)
+            if not testConnection(conn):
+                print('bad or interrupted connection. closeing game')
+                other.send(f"2{room.connections.index(conn)}1...".encode(FORMAT)) # other wins because client to stupid to by connection
+                break
+
+            recvMessage = conn.recv(4).decode(FORMAT) # only really needs 2 bytes but all the special messages have a 4 byte config
             
             if(recvMessage == DISCONNECT):
-                room.connections.pop(conn)
-                connected = False
-                # send to the other a force quit message
+                print("disconnect reseived")
+                if testConnection(other):
+                    other.send(f"2{room.connections.index(conn)}1Player {room.userNames[conn]} disconnected!".encode(FORMAT))
                 break
-            elif recvMessage == SURRENDER:
+            """elif recvMessage == SURRENDER:
                 conn.send(SURRENDER.encode(FORMAT))
                 other.send(f"2{room.connections.index(conn)}1".encode(FORMAT))
-                continue
-            elif not testConnection(conn):
-                print('bad or interrupted connection. closeing game')
-                other.send(f"2{room.connections.index(conn)}1".encode(FORMAT)) # other wins because client to stupid to by connection
-                break
+                break"""
+
+            
+            if len(room.connections) != 2:
+                conn.send(f"{DISCONNECT}otherPlayer left the game! You win!".encode(FORMAT))
+
 
 
             square = int(recvMessage[:2])
-            
-            if other == None:
-                x = list(room.connections)
-                x.remove(conn)
-                
-                other = x[0]
-            if otherGrid == None:
-                g = list(grids)
-                g.remove(grid)
-                otherGrid = list(map(int, g[0]))
 
             # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
-
             isHit = False
             otherSquares = ["0", "0", "0", "0"] # change the standart values
             square = min(square, mapSize**2-1)
 
+            # check hit
             if otherGrid[square] == 1:
                 isHit = True
                 otherGrid[square] = 2
-
                 otherSquares = starPattern(otherGrid, square) # returns the value of the other squares
 
 
@@ -191,16 +198,24 @@ def handle_player(conn, addr, room: Room):
             # win condition
             if 1 not in otherGrid:
                 # win
-                other.send(f"2{room.connections.index(conn)}0".encode(FORMAT))  # other looses
-                conn.send(f"2{room.connections.index(conn)}1".encode(FORMAT))   # you win
+                other.send(f"2{room.connections.index(conn)}0You Loose!".encode(FORMAT))  # other looses
+                conn.send(f"2{room.connections.index(conn)}1You Win!".encode(FORMAT))   # you win
+                print("[SERVER]: Game finished")
                 room.isFinished = True
                 break
+        except ValueError:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(f"Value Error on line {exc_tb.tb_lineno} (Type:{exc_type})")
+
         except Exception as e:
-            print(e)
+            # 'surrender' because of internet or connection error
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(e, exc_tb.tb_lineno)
+            break
 
     room.removePlayer(conn)
     conn.close()
-    print("removed")
+    print("closed client")
 
 def findRoom(name: str):
     for room in rooms:
@@ -250,7 +265,6 @@ def start():
                 
             #userName = room.checkNameOfPlayer(userName)
             room.addPlayer(conn, userName)
-            print(room.connections)
             sleep(0.1)
 
             # responce

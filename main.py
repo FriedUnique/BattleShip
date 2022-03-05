@@ -1,3 +1,4 @@
+import cProfile
 from math import floor, ceil
 import pygame
 from utils import Button, GameObject, InputField, Text, Vector2, specialMessages
@@ -7,9 +8,9 @@ import json
 import socket
 from time import sleep
 from threading import Thread
+from pyperclip import copy
 
-import cProfile
-
+import sys
 
 saveData: dict = {}
 with open('data.json') as data_file:
@@ -17,9 +18,13 @@ with open('data.json') as data_file:
 
 
 """
-TODO: When error screen pops up cpu usage spikes to 1%
 
 TODO: Display whos turn it is. (username info is given by server)
+
+TODO: Exception handleing for: 
+    - When remote host closes the connection forcfully
+
+TODO: Splashscreen when game is finished
 
 """
 
@@ -245,6 +250,7 @@ def quit(b):
     
 
 def connectClient():
+    global client
     try:
         client.connect(ADDR)
         return True
@@ -255,7 +261,9 @@ def connectClient():
         return False
 
     except OSError:
-        return True
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print("OSError")
+        return False
 
 def start():
     global menu, roomInputField, usernameInputField
@@ -314,6 +322,7 @@ def connectToGame(b: Button):
     responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
     if responce.startswith(DISCONNECT): 
         print(responce[len(DISCONNECT):])
+        client.close()
         return
 
     ROOM_LINK = responce[0:16]
@@ -388,9 +397,9 @@ def menuLoop():
 
 
     while menu:
-        clock.tick(60)
+        clock.tick(30)
         for event in pygame.event.get():
-            if not errorMsg.toggled:
+            if not errorMsg.toggled: # so you cant click though the error layer
                 GameObject.HandleEventsAll(event)
 
             if event.type == pygame.QUIT:
@@ -464,6 +473,8 @@ def startGame(b: Button):
         startButton.SetActive(False)
         canEdit = False
 
+        copy(ROOM_LINK) # pyperclip.copy()
+
         recvThread = Thread(target=recv)
         recvThread.start()
         sleep(0.1) # so fully started
@@ -472,19 +483,20 @@ def startGame(b: Button):
         print(f"Connection actively refused by host @ {HOST}!")
 
 
-font = pygame.font.Font(None, 38)
 x = int((mapSize*GRIDSIZE)/2)
 y = mapSize*GRIDSIZE + 50
 
-youShipsText = Text("yShipsText", Vector2(x, y), text="Your ships", color=(0, 0, 0), font=font)
-otherShipsText = Text("otherShipsText", Vector2((mapSize*GRIDSIZE)*1.5, y), text="Oponent Ships", color=(0, 0, 0), font=font)
+youShipsText = Text("yShipsText", Vector2(x-75, y), text="Your ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize))
+otherShipsText = Text("otherShipsText", Vector2((mapSize*GRIDSIZE)*1.5+75, y), text="Oponent Ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize))
 startButton = Button("startButton", Vector2(mapSize*GRIDSIZE, y), Vector2(10, 4), onClicked=startGame)
+
+turnText = Text("turnText", Vector2(mapSize*GRIDSIZE, y), text="HHHHHHHH TURN", color=(0, 0, 0), font=pygame.font.Font(None, fontSize), active=False)
 # placing boats
 def editBoats():
     global isRunning, grid, canEdit, selectedIndex, boats, joinButton
 
     while canEdit:
-        clock.tick(60)
+        clock.tick(30)
         
         for event in pygame.event.get():
             GameObject.HandleEventsAll(event)
@@ -532,7 +544,6 @@ def editBoats():
         pygame.display.update()
 
 
-
 # endregion
 
 
@@ -568,100 +579,107 @@ def starPattern(lel: list, s: int, kenek: list = None):
 
 
 def resetToMenu():
-    global menu, canEdit, youShipsText, otherShipsText, grid, otherGrid, isTurn
+    global menu, canEdit, youShipsText, otherShipsText, grid, otherGrid, isTurn, isFinished
     print("menu time")
     isTurn = False
     menu = True
+    isFinished = False
+
     youShipsText.SetActive(False)
     otherShipsText.SetActive(False)
+    turnText.SetActive(False)
+
     grid = blancMap()
     otherGrid = blancMap()
+
     sleep(0.1)
 
 def recv():
     global received, isTurn, isFinished, isRunning, grid, otherGrid
     startMsg = ""
     while isRunning:
-        startMsg = client.recv(4).decode(FORMAT)
+        startMsg = client.recv(10).decode(FORMAT)
 
         if startMsg == DISCONNECT:
             isRunning = False
             isTurn = False
-            isFinished = False
-            print("Force close!")
-            # go to main menu
+            isFinished = True
+            print("Force quit! Press space")
             break
 
-        if not startMsg.startswith(specialMessages["connection test"]):
+        elif not startMsg.startswith(specialMessages["connection test"]):
             break
 
 
     if isRunning:
         isTurn = bool(int(startMsg[1]))
-        print(f"start message recved! my turn: {isTurn}!")
+        name = startMsg[2:]
+        turnText.SetActive(True)
+        turnText.changeText(f"{'Your' if isTurn==True else name} turn")
 
     while isRunning:
-        received = client.recv(8+8).decode(FORMAT) # max user name lenght
-        if len(received) < 3:
-            continue
+        try:
+            received = client.recv(8+8).decode(FORMAT) # max user name lenght
+            #print(received)
+            if len(received) < 3:
+                continue
 
-        if received.startswith("!"):
-            if received == DISCONNECT:
-                isRunning = False
-                isTurn = False
-                isFinished = False
-                print("Force close!")
-                # go to main menu
-                break
-            elif received == SURRENDER:
-                print("surrender")
-                isTurn = False
-                isFinished = True
+            if received.startswith("!"):
+                if received == DISCONNECT:
+                    isTurn = False
+                    isFinished = True
+                    print(client.recv(1024).decode(FORMAT)) # reason
+                    # go to main menu
+                    break
+                elif received == SURRENDER:
+                    print("surrender")
+                    isTurn = False
+                    isFinished = True
+                    break
+
+            elif received.startswith("#"): # is just for testing the connection
+                continue
+            
+            # end of game, win/loose
+            # 2{playerIndex}{bool: didWin}
+            if int(received[0]) > 1:
+                isWin = int(received[2])
+                print(f"Game finished! You {'won' if isWin==1 else 'lost'}!")
+                print(received[3:] + client.recv(1024).decode(FORMAT))
+                client.send(DISCONNECT.encode(FORMAT))
+                isFinished = True # in the main loop, the splash screen will be handled
                 break
 
-        elif received.startswith("#"): # is just for testing the connection
-            continue
+            isTurn = bool(int(received[0]))
+            square = int(received[1:3])
+            isHit = bool(int(received[3]))
+
+            # if hit a boat (handled on the server) grid slot is a 2
+            if isTurn == False:
+                # this is called right after your turn
+                #? check around the hit point and mark the other spots, like in the browser game
+                otherStarSquares = received[4:8]
+                otherGrid[square] = 2 if isHit == True else 3
+                if isHit:
+                    starPattern(otherGrid, square, list(otherStarSquares))
+
+            else:
+                grid[square] = 2 if isHit == True else 3
+                if isHit:
+                    starPattern(grid, square)
+
+            turnText.changeText(f"{'Your' if isTurn==True else received[8:]} turn")
         
-        # end of game, win/loose
-        #! 2 = end of game
-        # 2{playerIndex}{bool: didWin}
-        if int(received[0]) > 1:
-            # ! game loop
-            t = int(received[2])
-            print(f"Game finished! You {'won' if t==1 else 'lost'}!")
-            isFinished = True
-            # splash screen, YOU WON or YOU LOST!
-            # the main menu reset handled in the main loop
-            # disconnect from server
-            break
-
-        isTurn = bool(int(received[0]))
-        square = int(received[1:3])
-        isHit = bool(int(received[3]))
-
-        # if hit a boat (handled on the server) grid slot is a 2
-        if isTurn == 0:
-            # this is called right after your turn
-            #? check around the hit point and mark the other spots, like in the browser game
-            otherStarSquares = received[4:8]
-            otherGrid[square] = 2 if isHit == True else 3
-            if isHit:
-                starPattern(otherGrid, square, list(otherStarSquares))
-
-            print(received[8:])
-
-        else:
-            grid[square] = 2 if isHit == True else 3
-            if isHit:
-                starPattern(grid, square)
+        except OSError:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(exc_type, exc_tb.tb_lineno)
 
 
 # actual attacking draw your attacks
 while isRunning:
-    clock.tick(60)
+    clock.tick(30)
 
-    cProfile.run('menuLoop()')
-
+    menuLoop()
     editBoats()
 
     for event in pygame.event.get():
@@ -680,9 +698,8 @@ while isRunning:
 
             # on the right side
             #square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
-            square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-(mapSize*GRIDSIZE), 0)/GRIDSIZE), 99), 0)
-            print("Pressed: ", square)
-            #square = min(square, mapSize**2-1)
+            square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-(mapSize*GRIDSIZE), 0)/GRIDSIZE), mapSize**2-1), 0)
+            square = min(square, mapSize**2-1)
 
             if otherGrid[square] == 2 or otherGrid[square] == 3: continue # not click on hit positions
 
