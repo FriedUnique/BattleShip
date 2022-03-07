@@ -221,8 +221,8 @@ class Boat():
         # all boats must be placed
         for y in range(self.normDim.y):
             for x in range(self.normDim.x):
-                pX = (self.pos.x + (75*x))
-                pY = (self.pos.y + (75*y))
+                pX = (self.pos.x + (GRIDSIZE*x))
+                pY = (self.pos.y + (GRIDSIZE*y))
 
                 square = min(int(pY/GRIDSIZE) * mapSize + int(pX/GRIDSIZE), mapSize**2-1)
                 grid[square] = 1
@@ -232,7 +232,17 @@ errorMsg = ErrorText()
 
 boats: List[Boat] = []
 if canEdit:
-    Boat(Vector2(40, 40), Vector2(1, 1))
+    Boat(Vector2(160, 120), Vector2(1, 1))
+    Boat(Vector2(280, 240), Vector2(1, 1))
+    Boat(Vector2(40, 160), Vector2(1, 1))
+    Boat(Vector2(120, 320), Vector2(1, 1))
+
+    Boat(Vector2(40, 40), Vector2(2, 1))
+    Boat(Vector2(360, 40), Vector2(1, 2))
+    Boat(Vector2(200, 360), Vector2(2, 1))
+
+    Boat(Vector2(40, 240), Vector2(1, 3))
+    Boat(Vector2(360, 200), Vector2(1, 3))
     
     for boat in boats:
         boat.addToGrid()
@@ -251,6 +261,8 @@ def quit(b):
 
 def connectClient():
     global client
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     try:
         client.connect(ADDR)
         return True
@@ -261,7 +273,6 @@ def connectClient():
         return False
 
     except OSError:
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         print("OSError")
         return False
 
@@ -280,6 +291,7 @@ def start():
     startButton.SetActive(True)
     youShipsText.SetActive(True)
     otherShipsText.SetActive(True)
+    mainMenuButton.SetActive(True)
 
     save()
 
@@ -304,7 +316,6 @@ def enterNames(active: bool):
 
 def connectToGame(b: Button):
     global ROOM_LINK, USER, ROOM_NAME
-    print("pressed")
     if not connectClient():
         return
 
@@ -320,8 +331,8 @@ def connectToGame(b: Button):
     client.send(f"{joinMethod}{room},{userName}".encode(FORMAT))
 
     responce = client.recv(2048).decode(FORMAT) # if error, then message is provideds
-    if responce.startswith(DISCONNECT): 
-        print(responce[len(DISCONNECT):])
+    if responce.startswith(DISCONNECT):
+        errorMsg.loadError(responce[len(DISCONNECT):])
         client.close()
         return
 
@@ -363,10 +374,12 @@ createButton = Button("createButton", Vector2((mapSize*GRIDSIZE)+5, height/6*3),
 quitButton = Button("quitButton", Vector2((mapSize*GRIDSIZE)+5, height/6*5), Vector2(20, 8), "QUIT", font=buttonFont,
                     normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=quit)
 
-roomInputField = InputField("roomIF", Vector2((mapSize*GRIDSIZE)+5, height/10*6), scale=Vector2(10, 3.5), maxChrs=16 , active=False, font=textFont, text=saveData["roomName"])
+roomInputField = InputField("roomIF", Vector2((mapSize*GRIDSIZE)+5, height/10*6), scale=Vector2(10, 3.5), maxChrs=16 , active=False, font=textFont, text=saveData["roomName"],
+                            notAllowedCharacters=["#", "$", "!", "@"])
 
 usernameInputField = InputField("nameIF", Vector2((mapSize*GRIDSIZE)+5, height/10*8), scale=Vector2(10, 3.5), maxChrs=8, active=False, font=textFont, text=saveData["playerName"],
-                        onEndEdit = lambda userNameEntered: pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {userNameEntered}")) #460 ,560
+                        onEndEdit = lambda userNameEntered: pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {userNameEntered}"),
+                        notAllowedCharacters=["#", "$", "!", "@"]) #460 ,560
 
 roomIFDesc = Text("roomIFDesc", Vector2((mapSize*GRIDSIZE)-200, height/10*6-20), BLACK, text="ROOM NAME", active=False, font=textFont)
 userIFDesc = Text("userIFDesc", Vector2((mapSize*GRIDSIZE)-200, height/10*8-20), BLACK, text="USER NAME", active=False, font=textFont)
@@ -382,19 +395,6 @@ backToMenu = Button("back", Vector2(80, height-50), Vector2(15, 8), "back", font
 
 def menuLoop():
     global menuColor, createButton, quitButton, isRunning, canEdit, menu, startButton, youShipsText, otherShipsText
-    if menu:
-        createButton.SetActive(True)
-        joinOtherButton.SetActive(True)
-        quitButton.SetActive(True)
-
-        startButton.SetActive(False)
-        youShipsText.SetActive(False)
-        otherShipsText.SetActive(False)
-    else:
-        createButton.SetActive(False)
-        joinOtherButton.SetActive(False)
-        quitButton.SetActive(False)
-
 
     while menu:
         clock.tick(30)
@@ -483,14 +483,37 @@ def startGame(b: Button):
         print(f"Connection actively refused by host @ {HOST}!")
 
 
+def passToMainMenu(b):
+    global canEdit, menu, youShipsText, otherShipsText, grid, otherGrid, isTurn
+    menu = True
+    canEdit = False
+    isTurn = False
+
+    startButton.SetActive(False)
+    youShipsText.SetActive(False)
+    otherShipsText.SetActive(False)
+    turnText.SetActive(False)
+    mainMenuButton.SetActive(False)
+
+    grid = blancMap()
+    otherGrid = blancMap()
+
+    client.close() # how to leave the recv thread? through an exception, which will break out of the loop
+
+    enterNames(False)
+    sleep(0.1)
+
 x = int((mapSize*GRIDSIZE)/2)
 y = mapSize*GRIDSIZE + 50
 
-youShipsText = Text("yShipsText", Vector2(x-75, y), text="Your ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize))
-otherShipsText = Text("otherShipsText", Vector2((mapSize*GRIDSIZE)*1.5+75, y), text="Oponent Ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize))
-startButton = Button("startButton", Vector2(mapSize*GRIDSIZE, y), Vector2(10, 4), onClicked=startGame)
+youShipsText = Text("yShipsText", Vector2(x-75, y-15), text="Your ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize), active=False)
+otherShipsText = Text("otherShipsText", Vector2((mapSize*GRIDSIZE)*1.5+75, y-15), text="Oponent Ships", color=(0, 0, 0), font=pygame.font.Font(None, fontSize), active=False)
+startButton = Button("startButton", Vector2(mapSize*GRIDSIZE, y-20), Vector2(10, 4), onClicked=startGame,
+            normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), text="START", active=False)
 
-turnText = Text("turnText", Vector2(mapSize*GRIDSIZE, y), text="HHHHHHHH TURN", color=(0, 0, 0), font=pygame.font.Font(None, fontSize), active=False)
+turnText = Text("turnText", Vector2(mapSize*GRIDSIZE, y-15), text="HHHHHHHH TURN", color=(0, 0, 0), font=pygame.font.Font(None, fontSize), active=False)
+mainMenuButton = Button("mainMenuButton", Vector2(mapSize*GRIDSIZE, y+25), Vector2(9, 4), text="BACK",
+                normalBackground=menuColor, onHoverBackground=(111, 115, 120), onPressedBackground=(63, 66, 69), onClicked=passToMainMenu, active=False)
 # placing boats
 def editBoats():
     global isRunning, grid, canEdit, selectedIndex, boats, joinButton
@@ -506,7 +529,8 @@ def editBoats():
                 canEdit = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
+                if event.button == 1:   
+                    print(int(event.pos[0]/GRIDSIZE)*GRIDSIZE, int(event.pos[1]/GRIDSIZE)*GRIDSIZE)
                     for i, boat in enumerate(boats):
                         if boat.rect.collidepoint(event.pos):
                             grid = blancMap()
@@ -515,6 +539,7 @@ def editBoats():
                             y = boat.pos.y - event.pos[1]
 
                 if selectedIndex == None: continue
+
                 
                 # scroll
                 if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
@@ -551,31 +576,33 @@ def editBoats():
 
 received = ""
 
-def starPattern(lel: list, s: int, kenek: list = None):
+def starPattern(_grid: list, s: int, starList: list = None):
     l = max(s-1, 0)
     r = min(s+1, mapSize**2-1)
     u = max(s-mapSize, 0)
     d = min(s+mapSize, mapSize**2-1)
 
-    if kenek != None:
-        lel[l] = int(kenek[0]) if int(kenek[0]) != 1 else 0
-        lel[r] = int(kenek[1]) if int(kenek[1]) != 1 else 0
-        lel[u] = int(kenek[2]) if int(kenek[2]) != 1 else 0
-        lel[d] = int(kenek[3]) if int(kenek[3]) != 1 else 0
+    if starList != None:
+        _grid[l] = int(starList[0]) if int(starList[0]) != 1 else 0
+        _grid[r] = int(starList[1]) if int(starList[1]) != 1 else 0
+        _grid[u] = int(starList[2]) if int(starList[2]) != 1 else 0
+        _grid[d] = int(starList[3]) if int(starList[3]) != 1 else 0
         return
 
     if s % mapSize != 0:
-        if lel[l] != 1 and lel[l] != 2:
-            lel[l] = 3
+        if _grid[l] != 1 and _grid[l] != 2:
+            _grid[l] = 3
     if s % mapSize != mapSize-1:
-        if lel[r] != 1 and lel[r] != 2:
-            lel[r] = 3
+        if _grid[r] != 1 and _grid[r] != 2:
+            _grid[r] = 3
     
-    if lel[u] != 1 and lel[u] != 2:
-        lel[u] = 3
+    if _grid[u] != 1 and _grid[u] != 2:
+        _grid[u] = 3
 
-    if lel[d] != 1 and lel[d] != 2:
-        lel[d] = 3
+    if _grid[d] != 1 and _grid[d] != 2:
+        _grid[d] = 3
+
+    
 
 
 def resetToMenu():
@@ -593,6 +620,7 @@ def resetToMenu():
     otherGrid = blancMap()
 
     sleep(0.1)
+    client.close() # should be safe, because it is called after the recv thread is break out of
 
 def recv():
     global received, isTurn, isFinished, isRunning, grid, otherGrid
@@ -673,6 +701,9 @@ def recv():
         except OSError:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(exc_type, exc_tb.tb_lineno)
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print(e, exc_tb.tb_lineno)
 
 
 # actual attacking draw your attacks
@@ -683,12 +714,17 @@ while isRunning:
     editBoats()
 
     for event in pygame.event.get():
+        GameObject.HandleEventsAll(event)
         if event.type == pygame.QUIT:
             isTurn = False
             isRunning = False
             canEdit = False
             client.send(DISCONNECT.encode(FORMAT))
             break
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                pass
 
         elif event.type == pygame.KEYDOWN and isFinished:
             resetToMenu()

@@ -373,12 +373,14 @@ class InputField(GameObject):
     class InputFieldEvents(Enum):
         OnEndEdit = 1
     
-    def __init__(self, name = "InputField", position = Vector2(0, 0), scale = Vector2(1, 1), text: str = '', onEndEdit=lambda x: x, maxChrs: int = 16, active=True, font=FONT):
+    def __init__(self, name = "InputField", position = Vector2(0, 0), scale = Vector2(1, 1), text: str = '', onEndEdit=lambda x: x, maxChrs: int = 16, active=True, font=FONT, notAllowedCharacters: List[str] = []):
         self.color = COLOR_INACTIVE
         self.text = text
         self.textSize = 32
         self.selected = False
         self.maxChrs = maxChrs
+
+        self.notChrs = notAllowedCharacters
 
         super().__init__(name, font.render(text, True, self.color), position, scale, active=active)
 
@@ -428,6 +430,8 @@ class InputField(GameObject):
 
                 else:
                     if len(self.text) >= self.maxChrs: return
+
+                    if event.unicode in self.notChrs: return
                     
                     self.text += event.unicode
 

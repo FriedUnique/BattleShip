@@ -101,21 +101,29 @@ def handle_player(conn, addr, room: Room):
     otherGrid = None
 
     # when the start (ready) button is pressed, then it sends the grid.
-    grid = conn.recv(2048).decode(FORMAT)
-    grid = grid.split(",")
-    if len(grid) <= 3:
-        print(grid)
-        room.removePlayer(conn)
+    try:
+        grid = conn.recv(2048).decode(FORMAT)
+        grid = grid.split(",")
+        if len(grid) <= 3:
+            #print(grid)
+            room.removePlayer(conn)
+            conn.close()
+            #print("client closed")
+            connected = False
+            return
+
+        # convert from List[str] to List [int]
+        for i in range(0, len(grid)):
+            grid[i] = int(grid[i])
+
+        grids.append(grid)
+
+    except ConnectionResetError:
         conn.close()
-        print("client closed")
-        connected = False
+        room.removePlayer(conn)
+        print("[SERVER] Client forcibly closed the connection")
+        
         return
-
-    # convert from List[str] to List [int]
-    for i in range(0, len(grid)):
-        grid[i] = int(grid[i])
-
-    grids.append(grid)  
     
 
     room.ready += 1
@@ -160,15 +168,9 @@ def handle_player(conn, addr, room: Room):
                 if testConnection(other):
                     other.send(f"2{room.connections.index(conn)}1Player {room.userNames[conn]} disconnected!".encode(FORMAT))
                 break
-            """elif recvMessage == SURRENDER:
-                conn.send(SURRENDER.encode(FORMAT))
-                other.send(f"2{room.connections.index(conn)}1".encode(FORMAT))
-                break"""
-
             
             if len(room.connections) != 2:
                 conn.send(f"{DISCONNECT}otherPlayer left the game! You win!".encode(FORMAT))
-
 
 
             square = int(recvMessage[:2])
@@ -187,7 +189,6 @@ def handle_player(conn, addr, room: Room):
 
             square = "%02d" % (square,) # convert to a 2 digit format
 
-            #print(f"Player: {list(connections).index(conn)} >>  1{square}{isHit}")
             #{isTurn}{attackedSquare}{isHit}
             other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
 
@@ -242,6 +243,11 @@ def start():
 
         # create room
         if joinMethod == "c":
+            if findRoom(roomName) != None:
+                conn.send(f"{DISCONNECT}Room already exists".encode(FORMAT))
+                conn.close()
+                continue
+
             room = Room(roomName)
             room.addPlayer(conn, userName)
 
@@ -251,7 +257,7 @@ def start():
 
         # join existing room
         elif joinMethod == "j":
-            room = findRoom(roomName)
+            room = findRoom(roomName) # roomName can be either a link or string name
 
             if room == None:
                 conn.send(f"{DISCONNECT}No Room Found!".encode(FORMAT))
