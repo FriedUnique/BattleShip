@@ -22,8 +22,6 @@ mapSize = 10
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
 
-grids = []
-
 class Room:
     # TODO: Rename room if roomname already exists
     def __init__(self, name: str):
@@ -32,6 +30,7 @@ class Room:
 
         self.connections = []
         self.userNames = {}
+        self.grids = []
 
         self.ready = -2 # if 0 then game starts, when player ready message, ready is incremented
         self.isFinished = False
@@ -64,6 +63,16 @@ class Room:
 
 rooms: List[Room] = []
 
+def findRoom(name: str):
+    for room in rooms:
+        if room.name == name:
+            return room
+
+        # if not hashed name
+        if room.name == hashlib.shake_256(name.encode()).hexdigest(8):
+            return room
+
+    return None
 
 def starPattern(lel: list, s: int):
     l = max(s-1, 0)
@@ -86,7 +95,6 @@ def starPattern(lel: list, s: int):
     
     return [str(lel[l]), str(lel[r]), str(lel[u]), str(lel[d])] # 4
 
-
 def testConnection(conn):
     try:
         conn.send(CONN_TEST.encode(FORMAT))
@@ -94,6 +102,8 @@ def testConnection(conn):
         return False
 
     return True
+
+
 
 def handle_player(conn, addr, room: Room):
     connected = True
@@ -116,7 +126,7 @@ def handle_player(conn, addr, room: Room):
         for i in range(0, len(grid)):
             grid[i] = int(grid[i])
 
-        grids.append(grid)
+        room.grids.append(grid)
 
     except ConnectionResetError:
         conn.close()
@@ -147,7 +157,7 @@ def handle_player(conn, addr, room: Room):
             other = x[0]
 
         if otherGrid == None:
-            g = list(grids)
+            g = list(room.grids)
             g.remove(grid)
             otherGrid = list(map(int, g[0]))
             
@@ -162,11 +172,19 @@ def handle_player(conn, addr, room: Room):
                 break
 
             recvMessage = conn.recv(4).decode(FORMAT) # only really needs 2 bytes but all the special messages have a 4 byte config
+
+            if recvMessage == CONN_TEST:
+                continue
             
             if(recvMessage == DISCONNECT):
                 print("disconnect reseived")
                 if testConnection(other):
                     other.send(f"2{room.connections.index(conn)}1Player {room.userNames[conn]} disconnected!".encode(FORMAT))
+                try:
+                    conn.send(DISCONNECT.encode(FORMAT))
+                except Exception:
+                    pass
+
                 break
             
             if len(room.connections) != 2:
@@ -218,16 +236,6 @@ def handle_player(conn, addr, room: Room):
     conn.close()
     print("closed client")
 
-def findRoom(name: str):
-    for room in rooms:
-        if room.name == name:
-            return room
-
-        # if not hashed name
-        if room.name == hashlib.shake_256(name.encode()).hexdigest(8):
-            return room
-
-    return None
 
 def start():
     server.listen()

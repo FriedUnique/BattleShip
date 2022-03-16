@@ -1,7 +1,6 @@
-import cProfile
 from math import floor, ceil
 import pygame
-from utils import Button, GameObject, InputField, Text, Vector2, specialMessages
+from utils import Button, GameObject, InputField, Text, Vector2, ErrorText, SplashScreen, specialMessages
 from typing import List
 import json
 
@@ -17,25 +16,13 @@ with open('data.json') as data_file:
     saveData = json.load(data_file)
 
 
-"""
-
-TODO: Display whos turn it is. (username info is given by server)
-
-TODO: Exception handleing for: 
-    - When remote host closes the connection forcfully
-
-TODO: Splashscreen when game is finished
-
-"""
-
-
 pygame.init()
 
 # region global variable declaration
 
 # map stuff
 mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
-GRIDSIZE = 40 # 8x8
+GRIDSIZE = 50 # min 40
 screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
 
 width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
@@ -71,16 +58,13 @@ pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {USER}")
 
 DISCONNECT = specialMessages["disconnect"]
 SURRENDER = specialMessages["surrender"]
+CONN_TEST = specialMessages["connection test"]
 
 def blancMap():
-    _g = []
-    for y in range(mapSize):
-        for x in range(mapSize):
-            _g.append(0)
-    return _g
+    return [0] * (mapSize**2)
 
 def save():
-    global ROOM_LINK, ROOM_NAME, USER
+    global ROOM_LINK, ROOM_NAME, USER, GRIDSIZE
     
     if joinMethod == "j":
         saveData["inviteLink"] = roomInputField.text
@@ -93,8 +77,22 @@ def save():
     saveData["playerName"] = usernameInputField.text
     USER = saveData["playerName"]
 
+    l = []
+    for boat in boats:
+        l.append([int(boat.pos.x/GRIDSIZE), int(boat.pos.y/GRIDSIZE), int(boat.normDim.x), int(boat.normDim.y)])
+    saveData[f"boats{mapSize}"] = list(l)
+
     with open('data.json', 'w') as outfile:
         json.dump(saveData, outfile)
+
+
+def testConnection():
+    try:
+        client.send(CONN_TEST.encode(FORMAT))
+    except:
+        return False
+
+    return True
 
 
 grid = blancMap()
@@ -112,55 +110,13 @@ joinMethod = ""
 
 # endregion
 
-
-errorAlpha = 80
-errorTextColor = (186, 34, 36)
-errorBackground = (100, 245, 67)
-
-class ErrorText(GameObject):
-    def __init__(self):
-        w, h = int(width/2), int(height/2)
-
-        self.text = Text("errorText", Vector2(w, h), color=errorTextColor)
-        self.closeButton = Button("acceptErrorButton", Vector2(w, height-50), Vector2(15, 6), onClicked=self.acceptError,
-                            text="ok")
-        
-        self.closeButton.SetActive(False)
-        self.text.SetActive(False)
-
-        self.toggled = False
-
-        super().__init__("errorText", None, Vector2(w, h))
-
-    def update(self, _t):
-        if(self.toggled):
-            # removed the transparent back
-            pygame.draw.rect(screen, errorBackground, (0, 0, width, height))
-            self.text.draw(screen)
-            self.closeButton.draw(screen)
-
-            #! important ! if error screen is up, it stops the user from clicking on stuff, including the close button
-            self.closeButton.handleEvents(None) # button doesn't use the event anyway
-
-    def acceptError(self, _b):
-        # close popup 
-        self.toggled = False
-        self.text.SetActive(False)
-        self.closeButton.SetActive(False)
-
-    def loadError(self, msg: str):
-        self.text.SetActive(True)
-        self.closeButton.SetActive(True)
-
-        self.text.changeText(msg)
-        self.toggled = True
-
 class Boat():
     def __init__(self, position: Vector2, dimensions: Vector2):
         pos = Vector2(floor(position.x/GRIDSIZE)*GRIDSIZE, floor(position.y/GRIDSIZE)*GRIDSIZE) # so the boats end up in a good square
         self.pos = pos
         self.oldPos = Vector2(pos.x, pos.y)
 
+        dimensions = Vector2(int(dimensions.x), int(dimensions.y))
         self.dim = dimensions*GRIDSIZE
         self.normDim = dimensions
         
@@ -178,29 +134,57 @@ class Boat():
         startCheck = square - mapSize - 1
 
         # top, grid skipping
-        t1 = startCheck if not str(startCheck+1)[0] > str(startCheck)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1
+        """if not len(str(yLow)) > 1:
+            t1 = startCheck if not str(startCheck+1)[0] > str(startCheck)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1
+        else:
+            t1 = startCheck if not str(startCheck+1)[0] > str(startCheck)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1"""
+        t1 = startCheck if len(str(startCheck)) >= len(str(startCheck+1)) else -1
 
         yLow = startCheck + (mapSize* (1+self.normDim.y))
-        l1 = yLow if str(yLow+1)[0] == str(yLow)[0] and yLow < mapSize**2 else -1
+        if not len(str(yLow)) > 1:
+            l1 = yLow if yLow < mapSize**2 else -1
+        else:
+            l1 = yLow if str(yLow+1)[0] == str(yLow)[0] and yLow < mapSize**2 else -1
 
         checkCoords.append(t1)
         checkCoords.append(l1)
 
+        for y in range(self.normDim.y):
+            for x in range(self.normDim.x):
+                pX = (self.pos.x + (GRIDSIZE*x))
+                pY = (self.pos.y + (GRIDSIZE*y))
+
+                s = min(int(pY/GRIDSIZE) * mapSize + int(pX/GRIDSIZE), mapSize**2-1)
+                checkCoords.append(s)
+
         for y in range(0, self.normDim.y+1):
             for x in range(0, self.normDim.x+1):
-                checkCoords.append(startCheck+1+x if str(startCheck+1)[0] == str(startCheck+1+x)[0] and len(str(startCheck+1+x)) >= len(str(startCheck+1)) else -1)# right most upper check
-                checkCoords.append(yLow+1+x if str(yLow+1)[0] == str(yLow+1+x)[0] and yLow+1+x < mapSize**2 else -1) # right most lower check
+                checkCoords.append(startCheck+1+x if len(str(startCheck+1+x)) >= len(str(startCheck+1)) else -1)# right most upper check
+                checkCoords.append(yLow+1+x if yLow+1+x < mapSize**2 else -1) # right most lower check
 
             leftCheck = startCheck + (mapSize*y)
-            checkCoords.append(leftCheck if str(leftCheck+1)[0] == str(leftCheck)[0] else -1) # left side check
+            if not len(str(leftCheck)) > 1:
+                checkCoords.append(leftCheck) # left side check
+            else:
+                checkCoords.append(leftCheck if str(leftCheck+1)[0] == str(leftCheck)[0] else -1)
+
 
             rightCheck = startCheck + (mapSize*y)+self.normDim.x+1
-            checkCoords.append(rightCheck if str(rightCheck-1)[0] == str(rightCheck)[0] else -1) # right side check
+            if not len(str(rightCheck)) > 1:
+                checkCoords.append(rightCheck)
+            else:
+                checkCoords.append(rightCheck if str(rightCheck-1)[0] == str(rightCheck)[0] else -1) # right side check
 
 
         for i in range(len(checkCoords)):
             if checkCoords[i] <= -1 or checkCoords[i] >= mapSize**2:
                 continue
+
+            grid = blancMap()
+
+            for boat in boats:
+                if boat == self: continue
+                boat.addToGrid()
 
             if grid[max(min(checkCoords[i], 100), 0)] == 1:
                 self.pos = Vector2(self.oldPos.x, self.oldPos.y)
@@ -211,11 +195,12 @@ class Boat():
                 return True
 
         self.oldPos = Vector2(self.pos.x, self.pos.y)
+        self.addToGrid()
         return False
 
-    def draw(self):
+    def draw(self, _screen):
         self.rect = pygame.Rect(self.pos.x-1, self.pos.y-1, self.dim.x, self.dim.y)
-        pygame.draw.rect(screen, BOAT, self.rect)
+        pygame.draw.rect(_screen, BOAT, self.rect)
 
     def addToGrid(self):
         # all boats must be placed
@@ -228,36 +213,54 @@ class Boat():
                 grid[square] = 1
 
 
-errorMsg = ErrorText()
+errorMsg = ErrorText(width, height)
+splashText = SplashScreen(width, height)
 
 boats: List[Boat] = []
-if canEdit:
-    Boat(Vector2(160, 120), Vector2(1, 1))
-    Boat(Vector2(280, 240), Vector2(1, 1))
-    Boat(Vector2(40, 160), Vector2(1, 1))
-    Boat(Vector2(120, 320), Vector2(1, 1))
+# 40: 4*1, 3*2, 2*3
+# 50: 4*1, 4*2, 3*3
 
-    Boat(Vector2(40, 40), Vector2(2, 1))
-    Boat(Vector2(360, 40), Vector2(1, 2))
-    Boat(Vector2(200, 360), Vector2(2, 1))
+def fetchBoatData():
+    if f"boats{mapSize}" not in saveData:
+        searchList = list(saveData.keys())
+        searchList.sort()
+        if f"boats{mapSize}" > searchList[len(searchList)-1]: 
+            print(f"Did not found the correct data for {mapSize}! Using {len(searchList)-1}")
+            return searchList[len(searchList)-1]
 
-    Boat(Vector2(40, 240), Vector2(1, 3))
-    Boat(Vector2(360, 200), Vector2(1, 3))
+        for index, key in enumerate(searchList):
+            try:
+                if key < f"boats{mapSize}" < searchList[index]:
+                    return key
+            
+            except IndexError:
+                pass
+
+        return searchList[0]
+    else:
+        return f"boats{mapSize}"
+
+
+def genBoats():
+    Boat(Vector2(40, 40), Vector2(1, 1)).addToGrid()
+    
+    """sTerm = fetchBoatData()
+
+    for i in range(len(saveData[sTerm])):
+        b = saveData[sTerm][i]
+        Boat(Vector2(b[0]*GRIDSIZE, b[1]*GRIDSIZE), Vector2(b[2], b[3]))
     
     for boat in boats:
-        boat.addToGrid()
+        boat.addToGrid()"""
 
+
+if canEdit:
+    genBoats()
+
+def n():
+    print("engegegegeggege")
 
 # region main menu
-
-def quit(b):
-    global isRunning, canEdit, menu
-    save()
-
-    isRunning = False
-    canEdit = False
-    menu = False
-    
 
 def connectClient():
     global client
@@ -312,10 +315,8 @@ def enterNames(active: bool):
     roomIFDesc.SetActive(active)
     userIFDesc.SetActive(active)
 
-
-
 def connectToGame(b: Button):
-    global ROOM_LINK, USER, ROOM_NAME
+    global ROOM_LINK, USER, ROOM_NAME, menu, canEdit
     if not connectClient():
         return
 
@@ -343,23 +344,37 @@ def connectToGame(b: Button):
 
     b.SetActive(False)
     print("Room Name: ", ROOM_LINK)
+    copy(ROOM_LINK)
+
+    menu = False
+    canEdit = True
+
     start()
+
 
 def create(b):
     global joinMethod
     joinMethod = "c"
     enterNames(True)
 
-
 def join(b):
     global joinMethod
     joinMethod = "j"
     enterNames(True)
 
-def back(b):    
+def back(b):
     save()
     enterNames(False)
     
+def quit(b):
+    global isRunning, canEdit, menu
+    save()
+
+    isRunning = False
+    canEdit = False
+    menu = False
+
+
 # region UI setup
 
 textFont = pygame.font.Font(None, fontSize)
@@ -394,7 +409,7 @@ backToMenu = Button("back", Vector2(80, height-50), Vector2(15, 8), "back", font
 # endregion
 
 def menuLoop():
-    global menuColor, createButton, quitButton, isRunning, canEdit, menu, startButton, youShipsText, otherShipsText
+    global isRunning, canEdit, menu
 
     while menu:
         clock.tick(30)
@@ -411,7 +426,7 @@ def menuLoop():
 
         GameObject.DrawAll(screen)
 
-        GameObject.UpdateAll()
+        GameObject.UpdateAll(screen)
 
         pygame.display.update()
 
@@ -446,8 +461,6 @@ def draw():
             elif(otherGrid[square] == 3):
                 pygame.draw.rect(screen, MISS, (x * GRIDSIZE + screenOffset.x, y * GRIDSIZE + screenOffset.y, GRIDSIZE - 2, GRIDSIZE - 2))
 
-            
-
     
     pygame.draw.rect(screen, (145, 149, 156), (0, mapSize*GRIDSIZE, width, 100))
 
@@ -455,7 +468,7 @@ def draw():
 
     if canEdit:
         for boat in boats:
-            boat.draw()
+            boat.draw(screen)
 
 # listener in the startButton
 def startGame(b: Button):
@@ -481,7 +494,8 @@ def startGame(b: Button):
         
     except ConnectionRefusedError:
         print(f"Connection actively refused by host @ {HOST}!")
-
+    except Exception as e:
+        print(e)
 
 def passToMainMenu(b):
     global canEdit, menu, youShipsText, otherShipsText, grid, otherGrid, isTurn
@@ -498,10 +512,14 @@ def passToMainMenu(b):
     grid = blancMap()
     otherGrid = blancMap()
 
+    if testConnection():
+        client.send(DISCONNECT.encode(FORMAT))
     client.close() # how to leave the recv thread? through an exception, which will break out of the loop
 
     enterNames(False)
     sleep(0.1)
+
+
 
 x = int((mapSize*GRIDSIZE)/2)
 y = mapSize*GRIDSIZE + 50
@@ -530,7 +548,7 @@ def editBoats():
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:   
-                    print(int(event.pos[0]/GRIDSIZE)*GRIDSIZE, int(event.pos[1]/GRIDSIZE)*GRIDSIZE)
+                    #print(int(event.pos[0]/GRIDSIZE)*GRIDSIZE, int(event.pos[1]/GRIDSIZE)*GRIDSIZE)
                     for i, boat in enumerate(boats):
                         if boat.rect.collidepoint(event.pos):
                             grid = blancMap()
@@ -566,15 +584,13 @@ def editBoats():
         screen.fill((0, 0, 0)) #(160, 193, 217)
         draw()
 
-        pygame.display.update()
+        GameObject.UpdateAll(screen)
 
+        pygame.display.update()
 
 # endregion
 
-
 # region main game loop (communitcation with server)
-
-received = ""
 
 def starPattern(_grid: list, s: int, starList: list = None):
     l = max(s-1, 0)
@@ -602,8 +618,6 @@ def starPattern(_grid: list, s: int, starList: list = None):
     if _grid[d] != 1 and _grid[d] != 2:
         _grid[d] = 3
 
-    
-
 
 def resetToMenu():
     global menu, canEdit, youShipsText, otherShipsText, grid, otherGrid, isTurn, isFinished
@@ -619,24 +633,36 @@ def resetToMenu():
     grid = blancMap()
     otherGrid = blancMap()
 
+    if testConnection():
+        client.send(DISCONNECT.encode())
+    
     sleep(0.1)
     client.close() # should be safe, because it is called after the recv thread is break out of
 
 def recv():
-    global received, isTurn, isFinished, isRunning, grid, otherGrid
+    global isTurn, isFinished, isRunning, grid, otherGrid
+    received = ""
     startMsg = ""
+    otherPlayerName = ""
+
     while isRunning:
-        startMsg = client.recv(10).decode(FORMAT)
+        try:
+            startMsg = client.recv(10).decode(FORMAT)
 
-        if startMsg == DISCONNECT:
-            isRunning = False
-            isTurn = False
-            isFinished = True
-            print("Force quit! Press space")
-            break
+            if startMsg == DISCONNECT:
+                isRunning = False
+                isTurn = False
+                isFinished = True
+                print("Force quit! Press space")
+                break
 
-        elif not startMsg.startswith(specialMessages["connection test"]):
-            break
+            elif not startMsg.startswith(specialMessages["connection test"]):
+                break
+        except ConnectionAbortedError:
+            #print("Connection aborted")
+            pass
+        except OSError:
+            return # stops the function here
 
 
     if isRunning:
@@ -656,7 +682,8 @@ def recv():
                 if received == DISCONNECT:
                     isTurn = False
                     isFinished = True
-                    print(client.recv(1024).decode(FORMAT)) # reason
+                    print("Disconnect: ", client.recv(1024).decode(FORMAT)) # reason
+                    client.close()
                     # go to main menu
                     break
                 elif received == SURRENDER:
@@ -672,10 +699,12 @@ def recv():
             # 2{playerIndex}{bool: didWin}
             if int(received[0]) > 1:
                 isWin = int(received[2])
-                print(f"Game finished! You {'won' if isWin==1 else 'lost'}!")
-                print(received[3:] + client.recv(1024).decode(FORMAT))
                 client.send(DISCONNECT.encode(FORMAT))
+
+                splashText.loadInfo(f"Game finished! {'You won' if isWin==1 else {otherPlayerName, 'won. You lost!'}}!", "back to main menu", lambda: passToMainMenu("a"))
+
                 isFinished = True # in the main loop, the splash screen will be handled
+                client.close()
                 break
 
             isTurn = bool(int(received[0]))
@@ -687,12 +716,15 @@ def recv():
                 # this is called right after your turn
                 #? check around the hit point and mark the other spots, like in the browser game
                 otherStarSquares = received[4:8]
+                otherPlayerName = received[8:]
+
                 otherGrid[square] = 2 if isHit == True else 3
                 if isHit:
                     starPattern(otherGrid, square, list(otherStarSquares))
 
             else:
                 grid[square] = 2 if isHit == True else 3
+                otherPlayerName = received[4:]
                 if isHit:
                     starPattern(grid, square)
 
@@ -701,6 +733,9 @@ def recv():
         except OSError:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(exc_type, exc_tb.tb_lineno)
+            #client.close()
+            isFinished = True
+            break
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(e, exc_tb.tb_lineno)
@@ -714,7 +749,9 @@ while isRunning:
     editBoats()
 
     for event in pygame.event.get():
-        GameObject.HandleEventsAll(event)
+        if not splashText.toggled:
+            GameObject.HandleEventsAll(event)
+        
         if event.type == pygame.QUIT:
             isTurn = False
             isRunning = False
@@ -725,9 +762,6 @@ while isRunning:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 pass
-
-        elif event.type == pygame.KEYDOWN and isFinished:
-            resetToMenu()
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if(event.pos[0] < screenOffset.x): continue
@@ -751,6 +785,8 @@ while isRunning:
 
     screen.fill((0, 0, 0)) #(160, 193, 217)
     draw()
+
+    GameObject.UpdateAll(screen)
 
     pygame.display.update()
 
