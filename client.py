@@ -1,6 +1,6 @@
 from math import floor, ceil
 import pygame
-from utils import Button, GameObject, InputField, Text, Vector2, ErrorText, SplashScreen, specialMessages
+from utils import Button, GameObject, InputField, Text, Vector2, ErrorText, SplashText, specialMessages
 from typing import List
 import json
 
@@ -50,15 +50,16 @@ HOST = '127.0.0.1'
 PORT = 5050
 ADDR = (HOST, PORT)
 
+DISCONNECT = specialMessages["disconnect"]
+SURRENDER = specialMessages["surrender"]
+CONN_TEST = specialMessages["connection test"]
+
 ROOM_LINK = saveData["inviteLink"]
 ROOM_NAME = saveData["roomName"]
 USER = saveData["playerName"]
 
 pygame.display.set_caption(f"Battle Ship Game. [USERNAME]: {USER}")
 
-DISCONNECT = specialMessages["disconnect"]
-SURRENDER = specialMessages["surrender"]
-CONN_TEST = specialMessages["connection test"]
 
 def blancMap():
     return [0] * (mapSize**2)
@@ -214,7 +215,7 @@ class Boat():
 
 
 errorMsg = ErrorText(width, height)
-splashText = SplashScreen(width, height)
+splashText = SplashText(width, height)
 
 boats: List[Boat] = []
 # 40: 4*1, 3*2, 2*3
@@ -547,8 +548,7 @@ def editBoats():
                 canEdit = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:   
-                    #print(int(event.pos[0]/GRIDSIZE)*GRIDSIZE, int(event.pos[1]/GRIDSIZE)*GRIDSIZE)
+                if event.button == 1:  
                     for i, boat in enumerate(boats):
                         if boat.rect.collidepoint(event.pos):
                             grid = blancMap()
@@ -558,7 +558,6 @@ def editBoats():
 
                 if selectedIndex == None: continue
 
-                
                 # scroll
                 if event.button == 4 or event.button == 5: boats[selectedIndex].rotate() 
 
@@ -733,7 +732,6 @@ def recv():
         except OSError:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(exc_type, exc_tb.tb_lineno)
-            #client.close()
             isFinished = True
             break
         except Exception as e:
@@ -764,9 +762,7 @@ while isRunning:
                 pass
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            if(event.pos[0] < screenOffset.x): continue
-
-            # on the right side
+            if(event.pos[0] < screenOffset.x): continue # can not click on the left side of the board
             #square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
             square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-(mapSize*GRIDSIZE), 0)/GRIDSIZE), mapSize**2-1), 0)
             square = min(square, mapSize**2-1)
@@ -793,9 +789,5 @@ while isRunning:
 # endregion
 
 save()
-sleep(0.2)
-
 pygame.quit()
-
-from sys import exit
-exit()
+sys.exit()

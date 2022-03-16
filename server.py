@@ -1,13 +1,13 @@
-from cgi import test
 import socket
 from threading import Thread
 from time import sleep
 from typing import List
 
-from utils import CONN_TEST, specialMessages
+from utils import specialMessages
 
 import hashlib
 import sys
+import time
 
 HOST = '127.0.0.1'  # (localhost)
 PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
@@ -15,9 +15,10 @@ FORMAT = 'utf-8'
 
 DISCONNECT = specialMessages["disconnect"]
 SURRENDER = specialMessages["surrender"]
+CONN_TEST = specialMessages["connection test"]
 
 ADDR = (HOST, PORT)
-mapSize = 10
+mapSize = 10 # wont change
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
@@ -234,7 +235,9 @@ def handle_player(conn, addr, room: Room):
 
     room.removePlayer(conn)
     conn.close()
-    print("closed client")
+
+    time_string = time.strftime("%H:%M:%S", time.localtime())
+    print(f"[{time_string}] closed client")
 
 
 def start():
