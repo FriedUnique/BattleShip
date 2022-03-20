@@ -1,15 +1,18 @@
-from math import floor, ceil
-import pygame
-from utils import Button, GameObject, InputField, Text, Vector2, ErrorText, SplashText, specialMessages
-from typing import List
-import json
+from utils import Button, GameObject, InputField, Text, Vector2, ErrorText, SplashText
+from utils import starPattern, specialMessages, MAPSIZE
 
-import socket
-from time import sleep
-from threading import Thread
+import pygame
 from pyperclip import copy
 
+import json
+import socket
 import sys
+
+from math import floor, ceil
+from threading import Thread
+from time import sleep
+from typing import List
+
 
 saveData: dict = {}
 with open('data.json') as data_file:
@@ -21,7 +24,7 @@ pygame.init()
 # region global variable declaration
 
 # map stuff
-mapSize = 10 #int(width/GRIDSIZE) # always a square grid!
+mapSize = MAPSIZE #int(width/GRIDSIZE) # always a square grid!
 GRIDSIZE = 50 # min 40
 screenOffset = Vector2(mapSize * GRIDSIZE + 10, 0)
 
@@ -29,8 +32,6 @@ width, height = ((mapSize*GRIDSIZE)*2+10, mapSize*GRIDSIZE+100) # 600
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Battle Ship Game.")
 clock = pygame.time.Clock()
-
-#alphaSurface = pygame.Surface((width, height), pygame.SRCALPHA)
 
 # colors
 EMPTY = (160, 193, 217) # 0
@@ -97,7 +98,7 @@ def testConnection():
 
 
 grid = blancMap()
-otherGrid = blancMap()
+otherGrid = blancMap()  
 
 isRunning = True
 canEdit = True # will change if game starts
@@ -134,12 +135,7 @@ class Boat():
         square = int(self.pos.y/GRIDSIZE) * mapSize + int(self.pos.x/GRIDSIZE)
         startCheck = square - mapSize - 1
 
-        # top, grid skipping
-        """if not len(str(yLow)) > 1:
-            t1 = startCheck if not str(startCheck+1)[0] > str(startCheck)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1
-        else:
-            t1 = startCheck if not str(startCheck+1)[0] > str(startCheck)[0] and len(str(startCheck)) >= len(str(startCheck+1)) else -1"""
-        t1 = startCheck if len(str(startCheck)) >= len(str(startCheck+1)) else -1
+        t1 = startCheck if str(startCheck)[0] == str(startCheck+1)[0] else -1
 
         yLow = startCheck + (mapSize* (1+self.normDim.y))
         if not len(str(yLow)) > 1:
@@ -160,8 +156,8 @@ class Boat():
 
         for y in range(0, self.normDim.y+1):
             for x in range(0, self.normDim.x+1):
-                checkCoords.append(startCheck+1+x if len(str(startCheck+1+x)) >= len(str(startCheck+1)) else -1)# right most upper check
-                checkCoords.append(yLow+1+x if yLow+1+x < mapSize**2 else -1) # right most lower check
+                checkCoords.append(startCheck+1+x if len(str(startCheck+1+x)) >= len(str(startCheck+1)) and str(startCheck+1+x)[0] == str(startCheck+1)[0]  else -1)# right most upper check
+                checkCoords.append(yLow+1+x if str(yLow+1+x) == str(yLow+1+x+1) else -1) # right most lower check
 
             leftCheck = startCheck + (mapSize*y)
             if not len(str(leftCheck)) > 1:
@@ -171,23 +167,22 @@ class Boat():
 
 
             rightCheck = startCheck + (mapSize*y)+self.normDim.x+1
-            if not len(str(rightCheck)) > 1:
-                checkCoords.append(rightCheck)
-            else:
-                checkCoords.append(rightCheck if str(rightCheck-1)[0] == str(rightCheck)[0] else -1) # right side check
+            checkCoords.append(rightCheck if str(rightCheck-1)[0] == str(rightCheck)[0] else -1) # right side check
 
+
+
+        checkCoords = list(set(checkCoords))
 
         for i in range(len(checkCoords)):
             if checkCoords[i] <= -1 or checkCoords[i] >= mapSize**2:
                 continue
 
             grid = blancMap()
-
             for boat in boats:
                 if boat == self: continue
                 boat.addToGrid()
 
-            if grid[max(min(checkCoords[i], 100), 0)] == 1:
+            if grid[max(min(checkCoords[i], 100), 0)] == 1: # if overlap or in a bad place
                 self.pos = Vector2(self.oldPos.x, self.oldPos.y)
                 grid = blancMap()
 
@@ -218,8 +213,6 @@ errorMsg = ErrorText(width, height)
 splashText = SplashText(width, height)
 
 boats: List[Boat] = []
-# 40: 4*1, 3*2, 2*3
-# 50: 4*1, 4*2, 3*3
 
 def fetchBoatData():
     if f"boats{mapSize}" not in saveData:
@@ -243,23 +236,15 @@ def fetchBoatData():
 
 
 def genBoats():
-    Boat(Vector2(40, 40), Vector2(1, 1)).addToGrid()
-    
-    """sTerm = fetchBoatData()
+    sTerm = fetchBoatData()
 
     for i in range(len(saveData[sTerm])):
         b = saveData[sTerm][i]
         Boat(Vector2(b[0]*GRIDSIZE, b[1]*GRIDSIZE), Vector2(b[2], b[3]))
     
     for boat in boats:
-        boat.addToGrid()"""
+        boat.addToGrid()
 
-
-if canEdit:
-    genBoats()
-
-def n():
-    print("engegegegeggege")
 
 # region main menu
 
@@ -272,13 +257,15 @@ def connectClient():
         return True
         
     except ConnectionRefusedError:
-        print(f"Connection actively refused by host @ {HOST}!")
         errorMsg.loadError(f"Connection actively refused by host @ {HOST}!")
         return False
 
     except OSError:
         print("OSError")
         return False
+
+    except Exception as e:
+        print("ConnectClient: ", e)
 
 def start():
     global menu, roomInputField, usernameInputField
@@ -296,8 +283,6 @@ def start():
     youShipsText.SetActive(True)
     otherShipsText.SetActive(True)
     mainMenuButton.SetActive(True)
-
-    save()
 
 def enterNames(active: bool):
     createButton.SetActive(not active)
@@ -341,16 +326,15 @@ def connectToGame(b: Button):
     ROOM_LINK = responce[0:16]
     USER = responce[16:]
 
-    save()
-
     b.SetActive(False)
-    print("Room Name: ", ROOM_LINK)
     copy(ROOM_LINK)
 
     menu = False
     canEdit = True
-
+    
+    genBoats()
     start()
+    save()
 
 
 def create(b):
@@ -591,33 +575,6 @@ def editBoats():
 
 # region main game loop (communitcation with server)
 
-def starPattern(_grid: list, s: int, starList: list = None):
-    l = max(s-1, 0)
-    r = min(s+1, mapSize**2-1)
-    u = max(s-mapSize, 0)
-    d = min(s+mapSize, mapSize**2-1)
-
-    if starList != None:
-        _grid[l] = int(starList[0]) if int(starList[0]) != 1 else 0
-        _grid[r] = int(starList[1]) if int(starList[1]) != 1 else 0
-        _grid[u] = int(starList[2]) if int(starList[2]) != 1 else 0
-        _grid[d] = int(starList[3]) if int(starList[3]) != 1 else 0
-        return
-
-    if s % mapSize != 0:
-        if _grid[l] != 1 and _grid[l] != 2:
-            _grid[l] = 3
-    if s % mapSize != mapSize-1:
-        if _grid[r] != 1 and _grid[r] != 2:
-            _grid[r] = 3
-    
-    if _grid[u] != 1 and _grid[u] != 2:
-        _grid[u] = 3
-
-    if _grid[d] != 1 and _grid[d] != 2:
-        _grid[d] = 3
-
-
 def resetToMenu():
     global menu, canEdit, youShipsText, otherShipsText, grid, otherGrid, isTurn, isFinished
     print("menu time")
@@ -665,69 +622,66 @@ def recv():
 
 
     if isRunning:
+        startMsg = startMsg.replace("#", "")
         isTurn = bool(int(startMsg[1]))
-        name = startMsg[2:]
+        otherPlayerName = startMsg[2:]
         turnText.SetActive(True)
-        turnText.changeText(f"{'Your' if isTurn==True else name} turn")
+        turnText.changeText(f"{'Your' if isTurn==True else otherPlayerName} turn")
 
     while isRunning:
         try:
-            received = client.recv(8+8).decode(FORMAT) # max user name lenght
-            #print(received)
-            if len(received) < 3:
-                continue
+            received = client.recv(8).decode(FORMAT) # max user name lenght + rest of packet
 
             if received.startswith("!"):
                 if received == DISCONNECT:
                     isTurn = False
+
+                    splashText.loadInfo(client.recv(1024).decode(FORMAT), "back to main menu", lambda: passToMainMenu("a"))
                     isFinished = True
-                    print("Disconnect: ", client.recv(1024).decode(FORMAT)) # reason
                     client.close()
-                    # go to main menu
-                    break
-                elif received == SURRENDER:
-                    print("surrender")
-                    isTurn = False
-                    isFinished = True
                     break
 
             elif received.startswith("#"): # is just for testing the connection
                 continue
+
+            received = received.replace("#", "")
             
             # end of game, win/loose
             # 2{playerIndex}{bool: didWin}
             if int(received[0]) > 1:
-                isWin = int(received[2])
+                isWin = bool(int(received[2]))
                 client.send(DISCONNECT.encode(FORMAT))
 
-                splashText.loadInfo(f"Game finished! {'You won' if isWin==1 else {otherPlayerName, 'won. You lost!'}}!", "back to main menu", lambda: passToMainMenu("a"))
+                if isWin:
+                    splashText.loadInfo(f"Game finished! You won!", "back to main menu", lambda: passToMainMenu("a"))
+                else:
+                    splashText.loadInfo(f"Game finished! {otherPlayerName} won. You lost!", "back to main menu", lambda: passToMainMenu("a"))
 
                 isFinished = True # in the main loop, the splash screen will be handled
                 client.close()
                 break
 
             isTurn = bool(int(received[0]))
-            square = int(received[1:3])
-            isHit = bool(int(received[3]))
 
-            # if hit a boat (handled on the server) grid slot is a 2
-            if isTurn == False:
-                # this is called right after your turn
-                #? check around the hit point and mark the other spots, like in the browser game
-                otherStarSquares = received[4:8]
-                otherPlayerName = received[8:]
+            if isTurn:
+                if len(received) > 1:
+                    square = int(received[1:3])
+                    isHit = bool(int(received[3]))
+                    otherStarSquares = list(received[4:])
 
-                otherGrid[square] = 2 if isHit == True else 3
-                if isHit:
-                    starPattern(otherGrid, square, list(otherStarSquares))
+                    otherGrid[square] = 2 if isHit == True else 3
+                    if isHit:
+                        starPattern(otherGrid, square, list(otherStarSquares))
 
             else:
-                grid[square] = 2 if isHit == True else 3
-                otherPlayerName = received[4:]
-                if isHit:
-                    starPattern(grid, square)
+                if len(received) > 1:
+                    square = int(received[1:3])
+                    isHit = bool(int(received[3]))
+                    grid[square] = 2 if isHit == True else 3
+                    if isHit:
+                        starPattern(grid, square)
 
-            turnText.changeText(f"{'Your' if isTurn==True else received[8:]} turn")
+            turnText.changeText(f"{'Your' if isTurn==True else otherPlayerName} turn")
         
         except OSError:
             exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -764,6 +718,7 @@ while isRunning:
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if(event.pos[0] < screenOffset.x): continue # can not click on the left side of the board
             #square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-600, 0)/GRIDSIZE), mapSize**2-1), 0)
+            print(int((event.pos[0]-screenOffset.x)/GRIDSIZE), int(event.pos[1]/GRIDSIZE))
             square = max(min(int(event.pos[1]/GRIDSIZE) * mapSize + int(max(event.pos[0]-(mapSize*GRIDSIZE), 0)/GRIDSIZE), mapSize**2-1), 0)
             square = min(square, mapSize**2-1)
 

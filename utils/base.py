@@ -10,6 +10,8 @@ DISCONNECT = "!dDd"
 SURRENDER = "!gGg"
 CONN_TEST = "#"
 
+MAPSIZE = 10
+
 specialMessages = {
     "disconnect": DISCONNECT,
     "surrender": SURRENDER,
@@ -174,6 +176,7 @@ class GameObject:
             if(not go.isActive): continue
             go.draw(s)
 
+
 def roundTupleValues(t: tuple):
     ts = list(t)
     for i in range(len(ts)):
@@ -181,7 +184,31 @@ def roundTupleValues(t: tuple):
 
     return tuple(ts)
 
-
 allGOs: Dict[str, GameObject] = dict()
 allActiveGOs: Dict[str, GameObject] = dict()
 
+def starPattern(_grid: list, s: int, starList: list = None):
+    l = max(s-1, 0)
+    r = min(s+1, MAPSIZE**2-1)
+    u = max(s-MAPSIZE, 0)
+    d = min(s+MAPSIZE, MAPSIZE**2-1)
+
+    if starList != None:
+        _grid[l] = int(starList[0]) if int(starList[0]) != 1 else 0
+        _grid[r] = int(starList[1]) if int(starList[1]) != 1 else 0
+        _grid[u] = int(starList[2]) if int(starList[2]) != 1 else 0
+        _grid[d] = int(starList[3]) if int(starList[3]) != 1 else 0
+        return
+
+    if s % MAPSIZE != 0:
+        if _grid[l] != 1 and _grid[l] != 2:
+            _grid[l] = 3
+    if s % MAPSIZE != MAPSIZE-1:
+        if _grid[r] != 1 and _grid[r] != 2:
+            _grid[r] = 3
+    
+    if _grid[u] != 1 and _grid[u] != 2:
+        _grid[u] = 3
+
+    if _grid[d] != 1 and _grid[d] != 2:
+        _grid[d] = 3

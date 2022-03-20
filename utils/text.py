@@ -100,7 +100,7 @@ class SplashText(GameObject):
     def loadInfo(self, msg: str, bText: str, f = lambda x: x):
         self.acceptFunction = f
         bTextLen = pygame.font.Font(None, 40).size(bText)[0]
-        self.closeButton.text = bText
+        self.closeButton.changeText(bText)
         self.closeButton.scale = Vector2(int(bTextLen/10)+5, 6)
         self.closeButton.SetActive(True)
 

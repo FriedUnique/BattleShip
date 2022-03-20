@@ -3,14 +3,14 @@ from threading import Thread
 from time import sleep
 from typing import List
 
-from utils import specialMessages
+from utils import specialMessages, starPattern
 
 import hashlib
 import sys
 import time
 
-HOST = '127.0.0.1'  # (localhost)
-PORT = 5050        # Port to listen on (non-privileged ports are > 1023)
+HOST = '127.0.0.1'
+PORT = 5050
 FORMAT = 'utf-8'
 
 DISCONNECT = specialMessages["disconnect"]
@@ -18,7 +18,6 @@ SURRENDER = specialMessages["surrender"]
 CONN_TEST = specialMessages["connection test"]
 
 ADDR = (HOST, PORT)
-mapSize = 10 # wont change
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
@@ -75,27 +74,6 @@ def findRoom(name: str):
 
     return None
 
-def starPattern(lel: list, s: int):
-    l = max(s-1, 0)
-    r = min(s+1, mapSize**2-1)
-    u = max(s-mapSize, 0)
-    d = min(s+mapSize, mapSize**2-1)
-
-    if s % mapSize != 0:
-        if lel[l] != 1 and lel[l] != 2:
-            lel[l] = 3
-    if s % mapSize != mapSize-1:
-        if lel[r] != 1 and lel[r] != 2:
-            lel[r] = 3
-    
-    if lel[u] != 1 and lel[u] != 2:
-        lel[u] = 3
-
-    if lel[d] != 1 and lel[d] != 2:
-        lel[d] = 3
-    
-    return [str(lel[l]), str(lel[r]), str(lel[u]), str(lel[d])] # 4
-
 def testConnection(conn):
     try:
         conn.send(CONN_TEST.encode(FORMAT))
@@ -116,10 +94,9 @@ def handle_player(conn, addr, room: Room):
         grid = conn.recv(2048).decode(FORMAT)
         grid = grid.split(",")
         if len(grid) <= 3:
-            #print(grid)
             room.removePlayer(conn)
             conn.close()
-            #print("client closed")
+            print("Client closed. Bad message!")
             connected = False
             return
 
@@ -139,17 +116,12 @@ def handle_player(conn, addr, room: Room):
 
     room.ready += 1
 
+    # wait until room is full
     while room.ready < 0:
         sleep(0.1)
         if not testConnection(conn):
             connected = False
             break
-    
-    # wait until there are two players
-    # send a start message to all players. the player with the bool isTurn variable will start 
-
-    #print(room.connections.index(conn))
-    # start message, it determines who starts (second paramter)
 
     if connected:
         if other == None:
@@ -162,7 +134,7 @@ def handle_player(conn, addr, room: Room):
             g.remove(grid)
             otherGrid = list(map(int, g[0]))
             
-        conn.send(f"1{room.connections.index(conn)}{room.userNames[other]}".encode(FORMAT))
+        conn.send(f"1{room.connections.index(conn)}{room.userNames[other]}".encode(FORMAT)) # start message
 
     while connected and room.isFinished == False:
         # position of mouse point in grid space
@@ -193,27 +165,32 @@ def handle_player(conn, addr, room: Room):
 
 
             square = int(recvMessage[:2])
+            squareSend = "%02d" % (square,) # convert to 2 digit number
 
             # {bool isTurn}{int2 squareHit}{bool isHit} = buffer size 4
             isHit = False
             otherSquares = ["0", "0", "0", "0"] # change the standart values
-            square = min(square, mapSize**2-1)
+            otherSquares = starPattern(otherGrid, square)
+            
 
-            # check hit
+            #* check hit
             if otherGrid[square] == 1:
                 isHit = True
                 otherGrid[square] = 2
-                otherSquares = starPattern(otherGrid, square) # returns the value of the other squares
 
+                #* if client hits a boat, he can shoot again.
+                conn.send(f"1{squareSend}{int(isHit)}{''.join(otherSquares)}".encode(FORMAT))
+                other.send(f"0{squareSend}{int(isHit)}".encode(FORMAT))
 
-            square = "%02d" % (square,) # convert to a 2 digit format
+            else:
+                otherGrid[square] = 3
 
-            #{isTurn}{attackedSquare}{isHit}
-            other.send(f"1{square}{int(isHit)}".encode(FORMAT)) # 4
+                conn.send(f"1{squareSend}{int(isHit)}{''.join(otherSquares)}".encode(FORMAT)) #8+len(userName)
+                other.send(f"0{squareSend}{int(isHit)}{''.join(otherSquares)}".encode(FORMAT)) # 4
 
-            # {isTurn}{attackedSquare}{isHit}{l,r,u,d}
-            # after you attacked, attack responce
-            conn.send(f"0{square}{int(isHit)}{''.join(otherSquares)}{room.userNames[other]}".encode(FORMAT)) #8+len(userName)
+                conn.send("0".encode(FORMAT))
+                other.send("1".encode(FORMAT))
+
 
             # win condition
             if 1 not in otherGrid:
